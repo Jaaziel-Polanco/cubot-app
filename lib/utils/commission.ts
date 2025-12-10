@@ -4,12 +4,14 @@ import type { Product } from "@/lib/types"
  * Calculates commission amount based on product settings
  */
 export function calculateCommission(product: Product, salePrice: number): number {
-  if (product.commission_type === "fixed") {
-    return product.commission_value
-  } else {
-    // Percentage
-    return (salePrice * product.commission_value) / 100
+  // Priority: fixed amount over percentage
+  if (product.commission_amount && product.commission_amount > 0) {
+    return product.commission_amount
+  } else if (product.commission_percent && product.commission_percent > 0) {
+    return (salePrice * product.commission_percent) / 100
   }
+  // Default: 0 commission
+  return 0
 }
 
 /**

@@ -21,7 +21,16 @@ const registerSaleSchema = z.object({
 const validateSaleSchema = z.object({
     saleId: z.string().uuid(),
     action: z.enum(["approve", "reject"]),
-    reason: z.string().optional(),
+    reason: z.string().nullish(),
+}).refine((data) => {
+    // If rejecting, reason is required and must not be empty
+    if (data.action === "reject") {
+        return data.reason != null && data.reason.trim().length > 0;
+    }
+    return true;
+}, {
+    message: "La razón del rechazo es obligatoria",
+    path: ["reason"]
 })
 
 export type ActionState = {
@@ -181,15 +190,21 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
 }
 
 export async function validateSale(prevState: ActionState, formData: FormData): Promise<ActionState> {
+    console.log("[validateSale] Starting validation process...")
     try {
         const supabase = await createClient()
         const {
             data: { user },
         } = await supabase.auth.getUser()
 
+        console.log("[validateSale] User authenticated:", user?.id)
+
         // Check if user is admin/validator
-        const { data: profile } = await supabase.from("users").select("role").eq("id", user?.id).single()
+        const { data: profile, error: profileError } = await supabase.from("users").select("role").eq("id", user?.id).single()
+        console.log("[validateSale] User profile:", profile, "Error:", profileError)
+
         if (!profile || !["admin", "validator"].includes(profile.role)) {
+            console.log("[validateSale] Permission denied for role:", profile?.role)
             return { error: "No tiene permisos para validar ventas" }
         }
 
@@ -198,15 +213,19 @@ export async function validateSale(prevState: ActionState, formData: FormData): 
             action: formData.get("action"),
             reason: formData.get("reason"),
         }
+        console.log("[validateSale] Form data:", rawData)
 
         const validated = validateSaleSchema.safeParse(rawData)
         if (!validated.success) {
+            console.log("[validateSale] Validation failed:", validated.error.errors)
             return { error: validated.error.errors[0].message }
         }
 
         const { saleId, action, reason } = validated.data
+        console.log("[validateSale] Validated data - saleId:", saleId, "action:", action)
 
         if (action === "reject") {
+            console.log("[validateSale] Rejecting sale...")
             const { error } = await supabase
                 .from("sales")
                 .update({
@@ -217,26 +236,46 @@ export async function validateSale(prevState: ActionState, formData: FormData): 
                 })
                 .eq("id", saleId)
 
-            if (error) return { error: "Error al rechazar la venta" }
+            if (error) {
+                console.error("[validateSale] Reject error:", error)
+                return { error: "Error al rechazar la venta: " + error.message }
+            }
+            console.log("[validateSale] Sale rejected successfully")
         } else {
             // Approve logic
+            console.log("[validateSale] Approving sale...")
+
             // 1. Get sale details
-            const { data: sale } = await supabase
+            const { data: sale, error: saleError } = await supabase
                 .from("sales")
                 .select("*, products(*)")
                 .eq("id", saleId)
                 .single()
 
-            if (!sale) return { error: "Venta no encontrada" }
+            console.log("[validateSale] Fetched sale:", sale?.sale_id, "Error:", saleError)
+
+            if (!sale) {
+                console.error("[validateSale] Sale not found for id:", saleId)
+                return { error: "Venta no encontrada" }
+            }
 
             // 2. Create Commission Record (Source of Truth for Payments)
             try {
+                console.log("[validateSale] Creating commission with:", {
+                    sale_id: sale.sale_id,
+                    vendor_id: sale.vendor_id,
+                    product_id: sale.product_id,
+                    sale_price: Number(sale.sale_price)
+                })
+
                 const commission = await createCommission({
                     sale_id: sale.sale_id,
                     vendor_id: sale.vendor_id,
                     product_id: sale.product_id,
                     sale_price: Number(sale.sale_price)
                 })
+
+                console.log("[validateSale] Commission created:", commission)
 
                 // 3. Update sale status and cache commission amount
                 const { error } = await supabase
@@ -249,20 +288,27 @@ export async function validateSale(prevState: ActionState, formData: FormData): 
                     })
                     .eq("id", saleId)
 
-                if (error) throw error
+                if (error) {
+                    console.error("[validateSale] Update sale error:", error)
+                    throw error
+                }
+
+                console.log("[validateSale] Sale approved successfully")
 
             } catch (err: unknown) {
-                console.error("Error creating commission:", err)
+                console.error("[validateSale] Error creating commission:", err)
                 const msg = err instanceof Error ? err.message : "Error desconocido"
                 return { error: "Error al crear la comisión: " + msg }
             }
         }
 
         revalidatePath("/admin/validation")
+        revalidatePath("/admin/sales")
+        console.log("[validateSale] Validation complete, paths revalidated")
         return { success: true, message: `Venta ${action === 'approve' ? 'aprobada' : 'rechazada'} correctamente` }
 
     } catch (error) {
-        console.error("Validation Error:", error)
+        console.error("[validateSale] Unexpected error:", error)
         return { error: "Error al procesar la validación" }
     }
 }

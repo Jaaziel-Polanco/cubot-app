@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useActionState, useEffect } from "react"
+import { useState, useActionState, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -46,37 +46,52 @@ export function ValidationActions({ saleId }: { saleId: string }) {
         }
     }, [state, router, t])
 
+    const [showApproveDialog, setShowApproveDialog] = useState(false)
+    const approveFormRef = useRef<HTMLFormElement>(null)
+
+    const handleApprove = () => {
+        if (approveFormRef.current) {
+            setShowApproveDialog(false)
+            // Submit form after dialog closes
+            setTimeout(() => {
+                approveFormRef.current?.requestSubmit()
+            }, 100)
+        }
+    }
+
     return (
         <div className="flex flex-col sm:flex-row gap-3">
             {/* Approve Action */}
-            <AlertDialog>
-                <AlertDialogTrigger asChild>
-                    <Button variant="default" className="bg-green-600 hover:bg-green-700" disabled={isPending}>
-                        <CheckCircle2 className="w-4 h-4 mr-2" />
-                        {t("admin.users.actions.approve")}
-                    </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>{t("admin.users.actions.approve")}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            {t("admin.validation.empty.title")} {/* Using empty title as placeholder or need specific key: "Are you sure you want to approve this sale?" */}
-                            {/* Creating specific keys locally if missing or reusing generic confirm */}
-                            Esta acción aprobará la venta y calculará automáticamente la comisión para el vendedor.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel disabled={isPending}>{t("admin.users.dialog.cancel")}</AlertDialogCancel>
-                        <form action={formAction}>
-                            <input type="hidden" name="saleId" value={saleId} />
-                            <input type="hidden" name="action" value="approve" />
-                            <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={isPending}>
+            <form ref={approveFormRef} action={formAction}>
+                <input type="hidden" name="saleId" value={saleId} />
+                <input type="hidden" name="action" value="approve" />
+                <AlertDialog open={showApproveDialog} onOpenChange={setShowApproveDialog}>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="default" className="bg-green-600 hover:bg-green-700" disabled={isPending}>
+                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                            {t("admin.users.actions.approve")}
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>{t("admin.users.actions.approve")}?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                Esta acción aprobará la venta y calculará automáticamente la comisión para el vendedor.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel disabled={isPending}>{t("admin.users.dialog.cancel")}</AlertDialogCancel>
+                            <Button
+                                onClick={handleApprove}
+                                className="bg-green-600 hover:bg-green-700"
+                                disabled={isPending}
+                            >
                                 {isPending ? t("admin.products.form.save_loading") : t("admin.users.actions.approve")}
                             </Button>
-                        </form>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            </form>
 
             {/* Reject Action */}
             <Dialog open={showRejectDialog} onOpenChange={setShowRejectDialog}>

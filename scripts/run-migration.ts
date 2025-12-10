@@ -17,7 +17,7 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
 async function runMigration() {
     try {
-        const migrationPath = path.join(__dirname, "fix_admin_rls.sql")
+        const migrationPath = path.join(__dirname, "add_receipt_url.sql")
         console.log(`Reading migration from: ${migrationPath}`)
 
         const sql = fs.readFileSync(migrationPath, "utf8")

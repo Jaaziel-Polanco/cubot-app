@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server"
 import { VendorCommissionsContent } from "./content"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 export default async function VendorCommissionsPage() {
   const supabase = await createClient()
   const {
@@ -14,6 +17,14 @@ export default async function VendorCommissionsPage() {
     .select("*, sales(sale_id), products(name, sku)")
     .eq("vendor_id", user.id)
     .order("created_at", { ascending: false })
+
+  // Get payment request if exists (only pending ones)
+  const { data: paymentRequest } = await supabase
+    .from("payment_requests")
+    .select("*")
+    .eq("vendor_id", user.id)
+    .eq("status", "pending")
+    .maybeSingle()
 
   const pending =
     commissions
@@ -30,6 +41,7 @@ export default async function VendorCommissionsPage() {
       commissions={commissions}
       pendingAmount={pending}
       paidAmount={paid}
+      paymentRequest={paymentRequest}
     />
   )
 }
