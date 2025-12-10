@@ -7,7 +7,7 @@ Use this checklist to verify the system meets all requirements before production
 - [x] All tables created (users, products, sales, vendor_commissions, payment_batches, etc.)
 - [x] Row Level Security (RLS) enabled on all tables
 - [x] RLS policies implemented for admin, vendor, validator, finance roles
-- [x] Storage buckets created (sales-evidence, payments, kyc-documents)
+- [x] Storage buckets created (evidence, payments, kyc-documents)
 - [x] Storage policies configured with signed URLs
 - [x] Indexes created for performance (vendor_id, imei, status, dates)
 - [x] Partial unique index for approved IMEIs only
@@ -61,6 +61,8 @@ Use this checklist to verify the system meets all requirements before production
 - [x] Evidence upload (JPG/PNG/PDF, max 5MB)
 - [x] Channel selection (Online, Tienda Fisica, Marketplace, Venta Telefonica)
 - [x] Sale date tracking
+- [x] Schema: price renamed to sale_price
+- [x] Schema: added inventory check fields
 - [x] IP and user agent captured
 - [x] Sales list with filters (status, date, vendor)
 - [x] Sale details view with evidence display

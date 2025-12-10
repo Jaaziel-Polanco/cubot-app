@@ -67,7 +67,7 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
         const fileExt = evidenceFile.name.split(".").pop()
         const fileName = `${user.id}/${Date.now()}.${fileExt}`
         const { error: uploadError } = await supabase.storage
-            .from("sales-evidence")
+            .from("evidence")
             .upload(fileName, evidenceFile)
 
         if (uploadError) {
@@ -76,7 +76,7 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
         }
 
         const { data: { publicUrl: evidenceUrl } } = supabase.storage
-            .from("sales-evidence")
+            .from("evidence")
             .getPublicUrl(fileName)
 
         // 3. Inventory Check & Risk Analysis
@@ -138,8 +138,7 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
                 .from("sales")
                 .insert({
                     sale_id: saleId,
-                    user_id: user.id,
-                    vendor_id: vendorProfile?.vendor_id,
+                    vendor_id: user.id, // User is the vendor
                     product_id: productId,
                     imei,
                     sale_price: product.price, // Base price

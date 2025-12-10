@@ -43,6 +43,8 @@ export default function SaleForm({ products }: { products: Product[] }) {
     }
   }, [state, router])
 
+  const [productNotFoundWarning, setProductNotFoundWarning] = useState<string | null>(null)
+
   const handleImeiCheck = async (imei: string, forceCheck: boolean = false) => {
     // ... (Keep existing IMEI check logic as it provides good UX)
     // For brevity in this refactor, I'm simplifying the logging but keeping the core logic
@@ -56,6 +58,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
       if (!forceCheck) {
         setImeiError(null)
         setInventoryInfo(null)
+        setProductNotFoundWarning(null)
         return
       }
     }
@@ -68,6 +71,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
     const performCheck = async () => {
       setCheckingImei(true)
       setImeiError(null)
+      setProductNotFoundWarning(null)
       lastCheckedImei.current = imei
 
       try {
@@ -90,15 +94,29 @@ export default function SaleForm({ products }: { products: Product[] }) {
         setInventoryInfo(inventory)
         setImeiError(null)
 
-        // Auto-select product logic
-        const inventoryModel = inventory.model.toLowerCase().trim()
+        // Auto-select product logic and fallback note
+        const inventoryModel = (inventory.model || "").toLowerCase().trim()
+        const inventoryBrand = (inventory.brand || "").toLowerCase().trim()
+
+        // Strategy: Try to find a product that contains the model name
+        // Example: Inventory "NOTE 50", Product "Cubot Note 50"
         const matchingProduct = products.find((p) => {
           const productName = p.name.toLowerCase()
-          return productName.includes(inventoryModel) || inventoryModel.includes(productName.replace("cubot ", ""))
+          // Check if product name contains the model from inventory
+          // Or if model plus brand matches
+          return productName.includes(inventoryModel) ||
+            (inventoryBrand && productName.includes(inventoryBrand) && productName.includes(inventoryModel))
         })
 
         if (matchingProduct) {
           setFormData((prev) => ({ ...prev, product_id: matchingProduct.id }))
+          setProductNotFoundWarning(null)
+        } else {
+          // If no match found, don't auto-select, but show warning
+          setFormData((prev) => ({ ...prev, product_id: "" }))
+          setProductNotFoundWarning(
+            t("vendor.sales.new.product_not_found_warning").replace("{model}", `${inventory.brand || ''} ${inventory.model || ''}`.trim())
+          )
         }
 
       } catch (error: any) {
@@ -174,12 +192,11 @@ export default function SaleForm({ products }: { products: Product[] }) {
           {/* Product Select */}
           <div>
             <label className="block text-sm font-medium mb-2">{t("vendor.sales.new.product_label")}</label>
+            <input type="hidden" name="productId" value={formData.product_id} />
             <select
-              name="productId"
               value={formData.product_id}
-              onChange={(e) => setFormData({ ...formData, product_id: e.target.value })}
-              className="w-full px-3 py-2 border rounded"
-              required
+              disabled
+              className="w-full px-3 py-2 border rounded bg-muted/50 text-muted-foreground cursor-not-allowed"
             >
               <option value="">{t("vendor.sales.new.select_product")}</option>
               {products.map((product) => (
@@ -188,6 +205,11 @@ export default function SaleForm({ products }: { products: Product[] }) {
                 </option>
               ))}
             </select>
+            {productNotFoundWarning && (
+              <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/30 rounded">
+                ⚠️ {productNotFoundWarning}
+              </p>
+            )}
           </div>
 
           {/* Channel & Date */}

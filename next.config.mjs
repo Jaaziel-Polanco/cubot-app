@@ -7,6 +7,11 @@ const nextConfig = {
     unoptimized: true,
   },
   output: "standalone",
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10mb',
+    },
+  },
 }
 
 export default nextConfig

@@ -82,6 +82,7 @@ export const translations = {
         "vendor.sales.new.model": "Modelo",
         "vendor.sales.new.status": "Estado",
         "vendor.sales.new.product_label": "Producto",
+        "vendor.sales.new.product_not_found_warning": "Nota: El producto verificado ({model}) no existe en el catálogo actual.",
         "vendor.sales.new.select_product": "Seleccione un producto",
         "vendor.sales.new.channel_label": "Canal de Venta",
         "vendor.sales.new.channel.online": "Online",
@@ -358,7 +359,7 @@ export const translations = {
         "admin.actions.manage_vendors.btn": "Ver Vendedores",
 
         "admin.actions.validation.title": "Cola de Validación",
-        "admin.actions.validation.desc_prefix": "",
+        "admin.actions.validation.desc_prefix": "Hay",
         "admin.actions.validation.desc_suffix": "ventas esperando validación",
         "admin.actions.validation.btn": "Validar Ahora",
 
@@ -435,6 +436,7 @@ export const translations = {
         "vendor.sales.new.model": "Model",
         "vendor.sales.new.status": "Status",
         "vendor.sales.new.product_label": "Product",
+        "vendor.sales.new.product_not_found_warning": "Note: The verified product ({model}) does not exist in the current catalog.",
         "vendor.sales.new.select_product": "Select a product",
         "vendor.sales.new.channel_label": "Sales Channel",
         "vendor.sales.new.channel.online": "Online",
@@ -712,7 +714,7 @@ export const translations = {
         "admin.actions.manage_vendors.btn": "View Vendors",
 
         "admin.actions.validation.title": "Validation Queue",
-        "admin.actions.validation.desc_prefix": "",
+        "admin.actions.validation.desc_prefix": "There are",
         "admin.actions.validation.desc_suffix": "sales waiting for validation",
         "admin.actions.validation.btn": "Validate Now",
 
@@ -742,7 +744,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         // @ts-ignore
         const translation = translations[language]?.[key]
 
-        if (!translation) {
+        if (translation === undefined) {
             if (process.env.NODE_ENV === 'development') {
                 console.warn(`[LanguageContext] Missing key: "${key}" in "${language}"`)
             }
