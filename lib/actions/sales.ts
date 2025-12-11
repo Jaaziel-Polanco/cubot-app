@@ -101,6 +101,20 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
         // Check external inventory
         const inventoryResult = await checkInventoryByImei(imei)
 
+        // Check if IMEI already exists in approved sales
+        const { data: existingSale } = await supabase
+            .from("sales")
+            .select("sale_id, status")
+            .eq("imei", imei)
+            .eq("status", "approved")
+            .maybeSingle()
+
+        if (existingSale) {
+            return {
+                error: `Este IMEI ya fue registrado en la venta ${existingSale.sale_id} que está aprobada. No se pueden registrar IMEIs duplicados.`
+            }
+        }
+
         // Calculate Risk
         const riskLevel = await calculateRisk({
             imei,

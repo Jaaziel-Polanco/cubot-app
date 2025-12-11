@@ -1,6 +1,9 @@
 import { createClient } from "@/lib/supabase/server"
 import { VendorPaymentsContent } from "./content"
 
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
 export default async function VendorPaymentsPage() {
   const supabase = await createClient()
   const {
@@ -9,34 +12,14 @@ export default async function VendorPaymentsPage() {
 
   if (!user) return null
 
-  // Get payment batches for this vendor
-  const { data: commissions } = await supabase
-    .from("commissions")
-    .select("payment_batch_id, commission_amount, payment_batches(*)")
+  // Get payment requests (bank account info will show after migration)
+  const { data: paymentRequests } = await supabase
+    .from("payment_requests")
+    .select("*")
     .eq("vendor_id", user.id)
-    .not("payment_batch_id", "is", null)
-
-  // Group by batch
-  const batchMap = new Map()
-  commissions?.forEach((c: any) => {
-    if (c.payment_batches) {
-      const batchId = c.payment_batch_id
-      if (!batchMap.has(batchId)) {
-        batchMap.set(batchId, {
-          ...c.payment_batches,
-          vendor_amount: 0,
-          vendor_count: 0,
-        })
-      }
-      const batch = batchMap.get(batchId)
-      batch.vendor_amount += Number.parseFloat(c.commission_amount)
-      batch.vendor_count++
-    }
-  })
-
-  const batches = Array.from(batchMap.values())
+    .order("requested_at", { ascending: false })
 
   return (
-    <VendorPaymentsContent batches={batches} />
+    <VendorPaymentsContent requests={paymentRequests} />
   )
 }

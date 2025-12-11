@@ -4,15 +4,28 @@ import { useState, useActionState, useEffect } from "react"
 import { useLanguage } from "@/components/contexts/LanguageContext"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { toast } from "sonner"
 import { approvePaymentRequest, rejectPaymentRequest } from "@/lib/actions/payment-requests"
-import { DollarSign, User, Calendar, FileImage, CheckCircle2, XCircle, Clock, AlertCircle, Upload, ExternalLink } from "lucide-react"
+import { DollarSign, User, Calendar, FileImage, CheckCircle2, XCircle, Clock, AlertCircle, Upload, ExternalLink, Building2 } from "lucide-react"
 import { useRouter } from "next/navigation"
+
+interface VendorBankAccount {
+    id: string
+    vendor_id: string
+    account_number: string
+    account_holder_name: string
+    account_type: string
+    is_primary: boolean
+    banks: {
+        name: string
+    }
+}
 
 interface PaymentRequest {
     id: string
@@ -29,23 +42,25 @@ interface PaymentRequest {
     users: {
         name: string
         vendor_id: string | null
-        bank_account: string | null
     }
+    vendor_bank_accounts: VendorBankAccount | null
 }
 
 interface AdminPaymentsContentProps {
     requests: PaymentRequest[] | null
+    vendorBankAccounts: VendorBankAccount[] | null
     pendingCount: number
     approvedCount: number
     totalPending: number
 }
 
-export function AdminPaymentsContent({ requests, pendingCount, approvedCount, totalPending }: AdminPaymentsContentProps) {
+export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCount, approvedCount, totalPending }: AdminPaymentsContentProps) {
     const { t } = useLanguage()
     const router = useRouter()
     const [showApproveDialog, setShowApproveDialog] = useState(false)
     const [showRejectDialog, setShowRejectDialog] = useState(false)
     const [selectedRequest, setSelectedRequest] = useState<PaymentRequest | null>(null)
+    const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>("")
     const [rejectReason, setRejectReason] = useState("")
 
     const initialState = { message: "", error: "", success: false }
@@ -57,6 +72,7 @@ export function AdminPaymentsContent({ requests, pendingCount, approvedCount, to
             toast.success("Solicitud aprobada", { description: approveState.message })
             setShowApproveDialog(false)
             setSelectedRequest(null)
+            setSelectedBankAccountId("")
             router.refresh()
         } else if (approveState.error) {
             toast.error("Error", { description: approveState.error })
@@ -161,10 +177,13 @@ export function AdminPaymentsContent({ requests, pendingCount, approvedCount, to
                                                             </span>
                                                         )}
                                                     </div>
-                                                    {request.users.bank_account && (
-                                                        <p className="text-sm text-muted-foreground mt-1">
-                                                            Cuenta: {request.users.bank_account}
-                                                        </p>
+                                                    {request.vendor_bank_accounts && (
+                                                        <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                                                            <Building2 className="w-3 h-3" />
+                                                            <span>
+                                                                {request.vendor_bank_accounts.banks.name} - {request.vendor_bank_accounts.account_type} - ****{request.vendor_bank_accounts.account_number.slice(-4)}
+                                                            </span>
+                                                        </div>
                                                     )}
                                                 </div>
                                                 <Badge variant="outline" className={`border ${statusInfo.className}`}>
@@ -228,7 +247,7 @@ export function AdminPaymentsContent({ requests, pendingCount, approvedCount, to
                                                             Aprobar
                                                         </Button>
                                                     </DialogTrigger>
-                                                    <DialogContent>
+                                                    <DialogContent className="max-w-2xl">
                                                         <DialogHeader>
                                                             <DialogTitle>Aprobar Solicitud de Pago</DialogTitle>
                                                             <DialogDescription>
@@ -237,7 +256,32 @@ export function AdminPaymentsContent({ requests, pendingCount, approvedCount, to
                                                         </DialogHeader>
                                                         <form action={approveFormAction}>
                                                             <input type="hidden" name="requestId" value={request.id} />
+                                                            <input type="hidden" name="vendorBankAccountId" value={selectedBankAccountId} />
                                                             <div className="space-y-4 py-4">
+                                                                <div>
+                                                                    <Label htmlFor="bankAccount">Cuenta Bancaria del Vendor *</Label>
+                                                                    <Select value={selectedBankAccountId} onValueChange={setSelectedBankAccountId} required>
+                                                                        <SelectTrigger className="mt-2">
+                                                                            <SelectValue placeholder="Selecciona una cuenta..." />
+                                                                        </SelectTrigger>
+                                                                        <SelectContent>
+                                                                            {vendorBankAccounts
+                                                                                ?.filter((acc) => acc.vendor_id === request.vendor_id)
+                                                                                .map((account) => (
+                                                                                    <SelectItem key={account.id} value={account.id}>
+                                                                                        <div className="flex items-center gap-2">
+                                                                                            <Building2 className="w-4 h-4" />
+                                                                                            {account.banks.name} - {account.account_type} - ****{account.account_number.slice(-4)}
+                                                                                            {account.is_primary && " (Principal)"}
+                                                                                        </div>
+                                                                                    </SelectItem>
+                                                                                ))}
+                                                                        </SelectContent>
+                                                                    </Select>
+                                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                                        Selecciona la cuenta bancaria a la que se enviará el pago
+                                                                    </p>
+                                                                </div>
                                                                 <div>
                                                                     <Label htmlFor="receipt">Comprobante de Pago (opcional)</Label>
                                                                     <Input
@@ -256,7 +300,7 @@ export function AdminPaymentsContent({ requests, pendingCount, approvedCount, to
                                                                 <Button type="button" variant="outline" onClick={() => setShowApproveDialog(false)}>
                                                                     Cancelar
                                                                 </Button>
-                                                                <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={isApprovePending}>
+                                                                <Button type="submit" className="bg-green-600 hover:bg-green-700" disabled={isApprovePending || !selectedBankAccountId}>
                                                                     {isApprovePending ? "Procesando..." : "Confirmar Aprobación"}
                                                                 </Button>
                                                             </DialogFooter>

@@ -12,10 +12,12 @@ export default async function VendorCommissionsPage() {
 
   if (!user) return null
 
+  // Only fetch commissions from approved sales
   const { data: commissions } = await supabase
     .from("commissions")
-    .select("*, sales(sale_id), products(name, sku)")
+    .select("*, sales!inner(sale_id, status), products(name, sku)")
     .eq("vendor_id", user.id)
+    .eq("sales.status", "approved")
     .order("created_at", { ascending: false })
 
   // Get payment request if exists (only pending ones)

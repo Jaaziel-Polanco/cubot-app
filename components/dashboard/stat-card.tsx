@@ -46,13 +46,7 @@ export function StatCard({
 }: StatCardProps) {
   const Icon = iconMap[icon]
   const count = useMotionValue(0)
-  const rounded = useTransform(count, (latest) => {
-    // Only animate if value is a number
-    if (typeof value === "number") {
-      return Math.round(latest)
-    }
-    return value
-  })
+  const roundedNumber = useTransform(count, (latest) => Math.round(latest))
   const hasAnimated = useRef(false)
 
   useEffect(() => {
@@ -64,8 +58,6 @@ export function StatCard({
   }, [value, count, delay])
 
   if (!Icon) return null
-
-  const displayValue = typeof value === "number" ? rounded : value
 
   return (
     <motion.div
@@ -84,7 +76,7 @@ export function StatCard({
               <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</p>
               {typeof value === "number" ? (
                 <motion.p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">
-                  {rounded}
+                  {roundedNumber}
                 </motion.p>
               ) : (
                 <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">{value}</p>

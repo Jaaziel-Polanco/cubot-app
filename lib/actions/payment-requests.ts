@@ -131,6 +131,7 @@ export async function approvePaymentRequest(
 ): Promise<ActionState> {
     const requestId = formData.get("requestId") as string
     const receiptFile = formData.get("receipt") as File | null
+    const vendorBankAccountId = formData.get("vendorBankAccountId") as string
 
     console.log("[approvePaymentRequest] Starting for request:", requestId)
     try {
@@ -154,10 +155,10 @@ export async function approvePaymentRequest(
             return { error: "No tienes permisos para aprobar solicitudes" }
         }
 
-        // Get payment request
+        // Get payment request with vendor info
         const { data: request, error: requestError } = await supabase
             .from("payment_requests")
-            .select("*")
+            .select("*, users!vendor_id(bank_account)")
             .eq("id", requestId)
             .single()
 
@@ -197,6 +198,9 @@ export async function approvePaymentRequest(
             console.log("[approvePaymentRequest] Receipt uploaded:", receiptUrl)
         }
 
+        // Get vendor's bank account (remove after migration)
+        const vendorBankAccount = (request.users as any)?.bank_account || null
+
         // Update payment request to approved
         const { error: updateRequestError } = await supabase
             .from("payment_requests")
@@ -205,6 +209,7 @@ export async function approvePaymentRequest(
                 approved_at: new Date().toISOString(),
                 approved_by: user.id,
                 receipt_url: receiptUrl,
+                vendor_bank_account_id: vendorBankAccountId || null,
             })
             .eq("id", requestId)
 
@@ -242,9 +247,11 @@ export async function approvePaymentRequest(
  * Rejects a payment request (Admin only)
  */
 export async function rejectPaymentRequest(
-    requestId: string,
-    reason: string
+    prevState: ActionState,
+    formData: FormData
 ): Promise<ActionState> {
+    const requestId = formData.get("requestId") as string
+    const reason = formData.get("reason") as string
     console.log("[rejectPaymentRequest] Starting for request:", requestId)
     try {
         const supabase = await createClient()
