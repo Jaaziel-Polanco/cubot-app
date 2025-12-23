@@ -15,6 +15,7 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog"
 import { ValidationActions } from "./actions"
+import { useState } from "react"
 
 interface AdminValidationContentProps {
     pendingSales: any[]
@@ -22,6 +23,33 @@ interface AdminValidationContentProps {
 
 export function AdminValidationContent({ pendingSales }: AdminValidationContentProps) {
     const { t } = useLanguage()
+    const [selectedEvidence, setSelectedEvidence] = useState<string | null>(null)
+    const [signedUrl, setSignedUrl] = useState<string | null>(null)
+    const [loadingEvidence, setLoadingEvidence] = useState(false)
+
+    const openEvidenceModal = async (evidencePath: string | null) => {
+        if (!evidencePath) return
+        setSelectedEvidence(evidencePath)
+        setLoadingEvidence(true)
+        setSignedUrl(null)
+
+        try {
+            const res = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(evidencePath)}&bucket=evidence`)
+            const data = await res.json()
+            if (data.signedUrl) {
+                setSignedUrl(data.signedUrl)
+            }
+        } catch (error) {
+            console.error("Error fetching signed URL:", error)
+        } finally {
+            setLoadingEvidence(false)
+        }
+    }
+
+    const closeEvidenceModal = () => {
+        setSelectedEvidence(null)
+        setSignedUrl(null)
+    }
 
     return (
         <div className="space-y-6">
@@ -149,34 +177,15 @@ export function AdminValidationContent({ pendingSales }: AdminValidationContentP
                                     </div>
 
                                     <div>
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button variant="outline" className="w-full h-auto py-3">
-                                                    <ImageIcon className="w-4 h-4 mr-2" />
-                                                    {t("admin.validation.card.view_evidence")}
-                                                </Button>
-                                            </DialogTrigger>
-                                            <DialogContent className="max-w-3xl">
-                                                <DialogHeader>
-                                                    <DialogTitle>{t("admin.validation.card.view_evidence")}</DialogTitle>
-                                                </DialogHeader>
-                                                {sale.invoice_url ? (
-                                                    <div className="relative aspect-video w-full rounded-lg overflow-hidden bg-muted">
-                                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                        <img
-                                                            src={sale.invoice_url}
-                                                            alt="Evidence"
-                                                            className="w-full h-full object-contain"
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <div className="flex flex-col items-center justify-center p-12 text-muted-foreground bg-muted/50 rounded-lg">
-                                                        <ImageIcon className="w-12 h-12 mb-3 opacity-50" />
-                                                        <p>No evidence image available</p>
-                                                    </div>
-                                                )}
-                                            </DialogContent>
-                                        </Dialog>
+                                        <Button
+                                            variant="outline"
+                                            className="w-full h-auto py-3"
+                                            onClick={() => openEvidenceModal(sale.evidence_url || sale.invoice_url)}
+                                            disabled={!sale.evidence_url && !sale.invoice_url}
+                                        >
+                                            <ImageIcon className="w-4 h-4 mr-2" />
+                                            {t("admin.validation.card.view_evidence")}
+                                        </Button>
                                     </div>
                                 </div>
                             </div>
@@ -205,6 +214,34 @@ export function AdminValidationContent({ pendingSales }: AdminValidationContentP
                     </div>
                 )}
             </div>
+
+            {/* Evidence Image Modal */}
+            <Dialog open={!!selectedEvidence} onOpenChange={closeEvidenceModal}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>{t("admin.validation.card.view_evidence")}</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex items-center justify-center p-4 min-h-[300px]">
+                        {loadingEvidence ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                                <p className="text-muted-foreground">Cargando evidencia...</p>
+                            </div>
+                        ) : signedUrl ? (
+                            <img
+                                src={signedUrl}
+                                alt="Evidencia de venta"
+                                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center gap-4 text-muted-foreground">
+                                <ImageIcon className="w-12 h-12 opacity-50" />
+                                <p>No se pudo cargar la imagen</p>
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

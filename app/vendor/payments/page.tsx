@@ -12,10 +12,19 @@ export default async function VendorPaymentsPage() {
 
   if (!user) return null
 
-  // Get payment requests (bank account info will show after migration)
+  // Get payment requests with bank account info
   const { data: paymentRequests } = await supabase
     .from("payment_requests")
-    .select("*")
+    .select(`
+      *,
+      vendor_bank_accounts!vendor_bank_account_id(
+        id,
+        account_number,
+        account_holder_name,
+        account_type,
+        banks(name)
+      )
+    `)
     .eq("vendor_id", user.id)
     .order("requested_at", { ascending: false })
 

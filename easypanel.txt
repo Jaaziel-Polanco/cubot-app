@@ -2,16 +2,11 @@
       GUÍA DE DEPLOY EN EASYPANEL
 ================================================================================
 
-REQUISITOS PREVIOS:
-- Cuenta en Easypanel (https://easypanel.io)
-- Repositorio Git (GitHub/GitLab) con el código actualizado
-- Variables de entorno de Supabase y reCAPTCHA
-
 ================================================================================
 PASO 1: PREPARAR EL REPOSITORIO
 ================================================================================
 
-Asegúrate de que estos archivos estén en la raíz del proyecto:
+Asegúrate de crear estos archivos en la raíz del proyecto:
 
 1. Dockerfile (ya creado)
 2. .dockerignore (ya creado)

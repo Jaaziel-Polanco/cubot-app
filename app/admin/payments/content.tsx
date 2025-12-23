@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useActionState, useEffect } from "react"
+import { useState, useActionState, useEffect, useRef } from "react"
 import { useLanguage } from "@/components/contexts/LanguageContext"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -42,6 +42,8 @@ interface PaymentRequest {
     users: {
         name: string
         vendor_id: string | null
+        phone: string | null
+        email: string | null
     }
     vendor_bank_accounts: VendorBankAccount | null
 }
@@ -62,10 +64,67 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
     const [selectedRequest, setSelectedRequest] = useState<PaymentRequest | null>(null)
     const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>("")
     const [rejectReason, setRejectReason] = useState("")
+    const [searchQuery, setSearchQuery] = useState("")
+    const [currentPage, setCurrentPage] = useState(1)
+    const [receiptFile, setReceiptFile] = useState<File | null>(null)
+    const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
+    const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null)
+    const [signedUrl, setSignedUrl] = useState<string | null>(null)
+    const [loadingReceipt, setLoadingReceipt] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
+    const itemsPerPage = 10
+
+    const openReceiptModal = async (receiptPath: string | null) => {
+        if (!receiptPath) return
+        setSelectedReceipt(receiptPath)
+        setLoadingReceipt(true)
+        setSignedUrl(null)
+
+        try {
+            const res = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(receiptPath)}`)
+            const data = await res.json()
+            if (data.signedUrl) {
+                setSignedUrl(data.signedUrl)
+            }
+        } catch (error) {
+            console.error("Error fetching signed URL:", error)
+        } finally {
+            setLoadingReceipt(false)
+        }
+    }
+
+    const closeReceiptModal = () => {
+        setSelectedReceipt(null)
+        setSignedUrl(null)
+    }
 
     const initialState = { message: "", error: "", success: false }
     const [approveState, approveFormAction, isApprovePending] = useActionState(approvePaymentRequest, initialState)
     const [rejectState, rejectFormAction, isRejectPending] = useActionState(rejectPaymentRequest, initialState)
+
+    // Filter requests based on search query
+    const filteredRequests = requests?.filter((request) => {
+        if (!searchQuery.trim()) return true
+        const query = searchQuery.toLowerCase()
+        return (
+            request.users.name.toLowerCase().includes(query) ||
+            request.users.vendor_id?.toLowerCase().includes(query) ||
+            request.users.email?.toLowerCase().includes(query) ||
+            request.users.phone?.toLowerCase().includes(query) ||
+            request.amount.toString().includes(query)
+        )
+    })
+
+    // Pagination calculations
+    const totalPages = Math.ceil((filteredRequests?.length || 0) / itemsPerPage)
+    const startIndex = (currentPage - 1) * itemsPerPage
+    const endIndex = startIndex + itemsPerPage
+    const paginatedRequests = filteredRequests?.slice(startIndex, endIndex)
+
+    // Reset to page 1 when search changes
+    useEffect(() => {
+        setCurrentPage(1)
+    }, [searchQuery])
 
     useEffect(() => {
         if (approveState.success) {
@@ -73,11 +132,31 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
             setShowApproveDialog(false)
             setSelectedRequest(null)
             setSelectedBankAccountId("")
+            setReceiptFile(null)
+            setReceiptPreview(null)
             router.refresh()
         } else if (approveState.error) {
             toast.error("Error", { description: approveState.error })
         }
     }, [approveState, router])
+
+    // Handle file selection with preview
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (file) {
+            setReceiptFile(file)
+            setReceiptPreview(URL.createObjectURL(file))
+        }
+    }
+
+    // Clear selected file
+    const clearReceiptFile = () => {
+        setReceiptFile(null)
+        setReceiptPreview(null)
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ""
+        }
+    }
 
     useEffect(() => {
         if (rejectState.success) {
@@ -109,6 +188,20 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
             <div>
                 <h1 className="text-3xl font-bold text-foreground">Solicitudes de Pago</h1>
                 <p className="text-sm text-muted-foreground mt-1">Gestiona las solicitudes de pago de comisiones de vendedores</p>
+            </div>
+
+            {/* Search Filter */}
+            <div className="relative">
+                <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <Input
+                    type="text"
+                    placeholder="Buscar por nombre, ID, email, teléfono o monto..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                />
             </div>
 
             {/* Stats Cards */}
@@ -156,8 +249,8 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
 
             {/* Requests List */}
             <div className="space-y-4">
-                {requests && requests.length > 0 ? (
-                    requests.map((request) => {
+                {paginatedRequests && paginatedRequests.length > 0 ? (
+                    paginatedRequests.map((request) => {
                         const statusInfo = getStatusBadge(request.status)
                         const StatusIcon = statusInfo.icon
 
@@ -177,8 +270,26 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
                                                             </span>
                                                         )}
                                                     </div>
+                                                    <div className="mt-2 space-y-1">
+                                                        {request.users.phone && (
+                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                                                </svg>
+                                                                <span>{request.users.phone}</span>
+                                                            </div>
+                                                        )}
+                                                        {request.users.email && (
+                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                                                </svg>
+                                                                <span>{request.users.email}</span>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     {request.vendor_bank_accounts && (
-                                                        <div className="flex items-center gap-1 text-sm text-muted-foreground mt-1">
+                                                        <div className="flex items-center gap-1 text-sm text-muted-foreground mt-2">
                                                             <Building2 className="w-3 h-3" />
                                                             <span>
                                                                 {request.vendor_bank_accounts.banks.name} - {request.vendor_bank_accounts.account_type} - ****{request.vendor_bank_accounts.account_number.slice(-4)}
@@ -211,20 +322,15 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
                                                     </p>
                                                 </div>
                                                 {request.receipt_url && (
-                                                    <div>
-                                                        <p className="text-muted-foreground flex items-center gap-1">
-                                                            <FileImage className="w-3 h-3" />
-                                                            Comprobante
-                                                        </p>
+                                                    <div className="col-span-2">
                                                         <Button
-                                                            variant="link"
+                                                            variant="outline"
                                                             size="sm"
-                                                            className="h-auto p-0 text-blue-600"
-                                                            asChild
+                                                            onClick={() => openReceiptModal(request.receipt_url)}
+                                                            className="flex items-center gap-2"
                                                         >
-                                                            <a href={request.receipt_url} target="_blank" rel="noopener noreferrer">
-                                                                Ver <ExternalLink className="w-3 h-3 ml-1" />
-                                                            </a>
+                                                            <FileImage className="w-4 h-4" />
+                                                            Ver Comprobante
                                                         </Button>
                                                     </div>
                                                 )}
@@ -254,7 +360,12 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
                                                                 Aprueba el pago de RD${request.amount.toFixed(2)} para {request.users.name}
                                                             </DialogDescription>
                                                         </DialogHeader>
-                                                        <form action={approveFormAction}>
+                                                        <form action={(formData) => {
+                                                            if (receiptFile) {
+                                                                formData.append("receipt", receiptFile)
+                                                            }
+                                                            approveFormAction(formData)
+                                                        }}>
                                                             <input type="hidden" name="requestId" value={request.id} />
                                                             <input type="hidden" name="vendorBankAccountId" value={selectedBankAccountId} />
                                                             <div className="space-y-4 py-4">
@@ -284,13 +395,33 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
                                                                 </div>
                                                                 <div>
                                                                     <Label htmlFor="receipt">Comprobante de Pago (opcional)</Label>
-                                                                    <Input
-                                                                        id="receipt"
-                                                                        name="receipt"
-                                                                        type="file"
-                                                                        accept="image/*"
-                                                                        className="mt-2"
-                                                                    />
+
+                                                                    {receiptPreview ? (
+                                                                        <div className="mt-2 relative inline-block">
+                                                                            <img
+                                                                                src={receiptPreview}
+                                                                                alt="Preview del comprobante"
+                                                                                className="max-w-[200px] max-h-[150px] object-contain rounded-lg border border-border"
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={clearReceiptFile}
+                                                                                className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 shadow-md"
+                                                                            >
+                                                                                <XCircle className="w-4 h-4" />
+                                                                            </button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <Input
+                                                                            ref={fileInputRef}
+                                                                            id="receipt"
+                                                                            type="file"
+                                                                            accept="image/*"
+                                                                            className="mt-2"
+                                                                            onChange={handleFileChange}
+                                                                        />
+                                                                    )}
+
                                                                     <p className="text-xs text-muted-foreground mt-1">
                                                                         Sube una imagen del boucher/comprobante de transferencia
                                                                     </p>
@@ -382,6 +513,83 @@ export function AdminPaymentsContent({ requests, vendorBankAccounts, pendingCoun
                     </Card>
                 )}
             </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between border-t border-border pt-4">
+                    <div className="text-sm text-muted-foreground">
+                        Mostrando {startIndex + 1} - {Math.min(endIndex, filteredRequests?.length || 0)} de {filteredRequests?.length || 0} solicitudes
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                            disabled={currentPage === 1}
+                        >
+                            Anterior
+                        </Button>
+                        <div className="flex items-center gap-1">
+                            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                                // Show first page, last page, current page, and pages around current
+                                if (
+                                    page === 1 ||
+                                    page === totalPages ||
+                                    (page >= currentPage - 1 && page <= currentPage + 1)
+                                ) {
+                                    return (
+                                        <Button
+                                            key={page}
+                                            variant={currentPage === page ? "default" : "outline"}
+                                            size="sm"
+                                            onClick={() => setCurrentPage(page)}
+                                            className="w-9"
+                                        >
+                                            {page}
+                                        </Button>
+                                    )
+                                } else if (page === currentPage - 2 || page === currentPage + 2) {
+                                    return <span key={page} className="px-2">...</span>
+                                }
+                                return null
+                            })}
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                            disabled={currentPage === totalPages}
+                        >
+                            Siguiente
+                        </Button>
+                    </div>
+                </div>
+            )}
+
+            {/* Receipt Image Modal */}
+            <Dialog open={!!selectedReceipt} onOpenChange={closeReceiptModal}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>Comprobante de Pago</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex items-center justify-center p-4 min-h-[300px]">
+                        {loadingReceipt ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                                <p className="text-muted-foreground">Cargando comprobante...</p>
+                            </div>
+                        ) : signedUrl ? (
+                            <img
+                                src={signedUrl}
+                                alt="Comprobante de pago"
+                                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                            />
+                        ) : (
+                            <p className="text-muted-foreground">No se pudo cargar la imagen</p>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

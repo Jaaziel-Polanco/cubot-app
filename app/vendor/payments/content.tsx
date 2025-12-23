@@ -2,8 +2,11 @@
 
 import { useLanguage } from "@/components/contexts/LanguageContext"
 import { Badge } from "@/components/ui/badge"
+import { Card, CardContent } from "@/components/ui/card"
 import { Calendar, DollarSign, FileText, CheckCircle2, XCircle, Clock, FileImage, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useState } from "react"
 
 interface VendorBankAccount {
     id: string
@@ -33,6 +36,33 @@ interface VendorPaymentsContentProps {
 
 export function VendorPaymentsContent({ requests }: VendorPaymentsContentProps) {
     const { t } = useLanguage()
+    const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null)
+    const [signedUrl, setSignedUrl] = useState<string | null>(null)
+    const [loadingReceipt, setLoadingReceipt] = useState(false)
+
+    const openReceiptModal = async (receiptPath: string | null) => {
+        if (!receiptPath) return
+        setSelectedReceipt(receiptPath)
+        setLoadingReceipt(true)
+        setSignedUrl(null)
+
+        try {
+            const res = await fetch(`/api/storage/signed-url?path=${encodeURIComponent(receiptPath)}`)
+            const data = await res.json()
+            if (data.signedUrl) {
+                setSignedUrl(data.signedUrl)
+            }
+        } catch (error) {
+            console.error("Error fetching signed URL:", error)
+        } finally {
+            setLoadingReceipt(false)
+        }
+    }
+
+    const closeReceiptModal = () => {
+        setSelectedReceipt(null)
+        setSignedUrl(null)
+    }
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -108,13 +138,16 @@ export function VendorPaymentsContent({ requests }: VendorPaymentsContentProps) 
                                                 {statusInfo.label}
                                             </Badge>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                        <td className="px-6 py-4 text-sm">
                                             {request.receipt_url ? (
-                                                <Button variant="link" size="sm" className="h-auto p-0 text-blue-600" asChild>
-                                                    <a href={request.receipt_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1">
-                                                        <FileImage className="w-4 h-4" />
-                                                        Ver <ExternalLink className="w-3 h-3" />
-                                                    </a>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => openReceiptModal(request.receipt_url)}
+                                                    className="flex items-center gap-2"
+                                                >
+                                                    <FileImage className="w-4 h-4" />
+                                                    Ver Comprobante
                                                 </Button>
                                             ) : (
                                                 <span className="text-muted-foreground text-xs">-</span>
@@ -182,17 +215,17 @@ export function VendorPaymentsContent({ requests }: VendorPaymentsContentProps) 
                                 )}
                             </div>
                             {request.receipt_url && (
-                                <>
-                                    <div className="border-t border-border pt-3">
-                                        <Button variant="outline" size="sm" className="w-full" asChild>
-                                            <a href={request.receipt_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2">
-                                                <FileImage className="w-4 h-4" />
-                                                Ver Comprobante
-                                                <ExternalLink className="w-3 h-3" />
-                                            </a>
-                                        </Button>
-                                    </div>
-                                </>
+                                <div className="border-t border-border pt-3">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full flex items-center justify-center gap-2"
+                                        onClick={() => openReceiptModal(request.receipt_url)}
+                                    >
+                                        <FileImage className="w-4 h-4" />
+                                        Ver Comprobante de Pago
+                                    </Button>
+                                </div>
                             )}
                             {request.rejected_reason && (
                                 <div className="border-t border-border pt-3">
@@ -211,6 +244,31 @@ export function VendorPaymentsContent({ requests }: VendorPaymentsContentProps) 
                     </div>
                 )}
             </div>
+
+            {/* Receipt Image Modal */}
+            <Dialog open={!!selectedReceipt} onOpenChange={closeReceiptModal}>
+                <DialogContent className="max-w-4xl">
+                    <DialogHeader>
+                        <DialogTitle>Comprobante de Pago</DialogTitle>
+                    </DialogHeader>
+                    <div className="flex items-center justify-center p-4 min-h-[300px]">
+                        {loadingReceipt ? (
+                            <div className="flex flex-col items-center gap-4">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+                                <p className="text-muted-foreground">Cargando comprobante...</p>
+                            </div>
+                        ) : signedUrl ? (
+                            <img
+                                src={signedUrl}
+                                alt="Comprobante de pago"
+                                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+                            />
+                        ) : (
+                            <p className="text-muted-foreground">No se pudo cargar la imagen</p>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }

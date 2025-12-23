@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
+import { createServiceClient } from "@/lib/supabase/service"
 import { revalidatePath } from "next/cache"
 import { validateImei } from "@/lib/utils/imei"
 import { checkInventoryByImei } from "@/lib/services/inventory"
@@ -72,10 +73,11 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
             return { error: "La evidencia de venta es requerida" }
         }
 
-        // Upload to Supabase Storage
+        // Upload to Supabase Storage (use service client to bypass RLS)
         const fileExt = evidenceFile.name.split(".").pop()
         const fileName = `${user.id}/${Date.now()}.${fileExt}`
-        const { error: uploadError } = await supabase.storage
+        const serviceSupabase = createServiceClient()
+        const { error: uploadError } = await serviceSupabase.storage
             .from("evidence")
             .upload(fileName, evidenceFile)
 
@@ -84,9 +86,8 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
             return { error: "Error al subir la evidencia" }
         }
 
-        const { data: { publicUrl: evidenceUrl } } = supabase.storage
-            .from("evidence")
-            .getPublicUrl(fileName)
+        // Store just the filename (not full URL) since bucket is private
+        const evidenceUrl = fileName
 
         // 3. Inventory Check & Risk Analysis
         // Get product details for risk calc

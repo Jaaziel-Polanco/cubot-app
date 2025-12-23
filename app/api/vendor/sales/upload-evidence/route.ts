@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { requireVendor } from "@/lib/middleware/auth"
+import { createServiceClient } from "@/lib/supabase/service"
 import { createClient } from "@/lib/supabase/server"
 
 export async function POST(request: NextRequest) {
@@ -26,35 +27,33 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File too large. Maximum size is 5MB" }, { status: 400 })
     }
 
-    const supabase = await createClient()
+    // Use service client for storage (bypass RLS)
+    const serviceSupabase = createServiceClient()
 
-    // Upload to storage
+    // Upload to storage - store just the filename path
     const fileName = `${profile!.id}/${saleId}_${Date.now()}_${file.name}`
-    const { data, error: uploadError } = await supabase.storage.from("evidence").upload(fileName, file, {
+    const { error: uploadError } = await serviceSupabase.storage.from("evidence").upload(fileName, file, {
       contentType: file.type,
     })
 
     if (uploadError) throw uploadError
 
-    // Get public URL (signed)
-    const { data: urlData } = await supabase.storage.from("evidence").createSignedUrl(fileName, 60 * 60 * 24 * 365) // 1 year
-
-    if (!urlData) throw new Error("Failed to generate URL")
-
-    // Update sale with evidence URL
+    // Update sale with evidence filename (not full URL)
     if (saleId) {
+      const supabase = await createClient()
       await supabase
         .from("sales")
-        .update({ evidence_url: urlData.signedUrl })
+        .update({ evidence_url: fileName })
         .eq("id", saleId)
         .eq("vendor_id", profile!.id)
     }
 
     return NextResponse.json({
-      url: urlData.signedUrl,
       path: fileName,
+      success: true,
     })
   } catch (err: any) {
+    console.error("Upload evidence error:", err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

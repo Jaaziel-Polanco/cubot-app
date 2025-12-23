@@ -2,6 +2,7 @@
 
 import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
+import { createServiceClient } from "@/lib/supabase/service"
 import { revalidatePath } from "next/cache"
 
 export type ActionState = {
@@ -174,14 +175,16 @@ export async function approvePaymentRequest(
 
         let receiptUrl: string | null = null
 
-        // Upload receipt if provided
+        // Upload receipt if provided (use service client for storage)
         if (receiptFile && receiptFile.size > 0) {
             console.log("[approvePaymentRequest] Uploading receipt:", receiptFile.name)
 
             const fileExt = receiptFile.name.split(".").pop()
             const fileName = `${requestId}-${Date.now()}.${fileExt}`
 
-            const { error: uploadError } = await supabase.storage
+            // Use service client for storage to bypass RLS
+            const serviceSupabase = createServiceClient()
+            const { error: uploadError } = await serviceSupabase.storage
                 .from("payments")
                 .upload(fileName, receiptFile)
 
@@ -190,11 +193,8 @@ export async function approvePaymentRequest(
                 return { error: "Error al subir el comprobante de pago" }
             }
 
-            const { data: publicUrlData } = supabase.storage
-                .from("payments")
-                .getPublicUrl(fileName)
-
-            receiptUrl = publicUrlData.publicUrl
+            // Store only the filename (not full URL) since bucket is private
+            receiptUrl = fileName
             console.log("[approvePaymentRequest] Receipt uploaded:", receiptUrl)
         }
 

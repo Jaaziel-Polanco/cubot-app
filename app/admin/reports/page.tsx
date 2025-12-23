@@ -1,31 +1,50 @@
-export default function AdminReportsPage() {
+import { createClient } from "@/lib/supabase/server"
+import { AdminReportsContent } from "./content"
+
+export const dynamic = "force-dynamic"
+export const revalidate = 0
+
+export default async function AdminReportsPage() {
+  const supabase = await createClient()
+
+  // Fetch all sales with related data
+  const { data: sales } = await supabase
+    .from("sales")
+    .select("*, users!vendor_id(name, vendor_id), products(name, sku, price)")
+    .order("created_at", { ascending: false })
+
+  // Fetch all commissions
+  const { data: commissions } = await supabase
+    .from("commissions")
+    .select("*, users!vendor_id(name, vendor_id)")
+    .order("created_at", { ascending: false })
+
+  // Fetch all payment requests
+  const { data: paymentRequests } = await supabase
+    .from("payment_requests")
+    .select("*, users!vendor_id(name, vendor_id)")
+    .order("requested_at", { ascending: false })
+
+  // Fetch all vendors
+  const { data: vendors } = await supabase
+    .from("users")
+    .select("*")
+    .eq("role", "vendor")
+    .order("created_at", { ascending: false })
+
+  // Fetch all products
+  const { data: products } = await supabase
+    .from("products")
+    .select("*")
+    .order("name", { ascending: true })
+
   return (
-    <div>
-      <h1 className="text-3xl font-bold mb-8">Reports</h1>
-
-      <div className="grid grid-cols-2 gap-6">
-        <div className="bg-card rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Sales Report</h2>
-          <p className="text-sm text-muted-foreground mb-4">Export all sales data with filters</p>
-          <a
-            href="/api/admin/reports/sales?format=csv"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Download CSV
-          </a>
-        </div>
-
-        <div className="bg-card rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Commissions Report</h2>
-          <p className="text-sm text-slate-600 mb-4">Export all commissions data</p>
-          <a
-            href="/api/admin/reports/commissions?format=csv"
-            className="inline-block px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            Download CSV
-          </a>
-        </div>
-      </div>
-    </div>
+    <AdminReportsContent
+      sales={sales || []}
+      commissions={commissions || []}
+      paymentRequests={paymentRequests || []}
+      vendors={vendors || []}
+      products={products || []}
+    />
   )
 }
