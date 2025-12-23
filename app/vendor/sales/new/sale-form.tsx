@@ -22,6 +22,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
   const [checkingImei, setCheckingImei] = useState(false)
   const [inventoryInfo, setInventoryInfo] = useState<InventoryCheckResult | null>(null)
   const [imeiError, setImeiError] = useState<string | null>(null)
+  const [imeiStatusError, setImeiStatusError] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     product_id: "",
     imei: "",
@@ -59,6 +60,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
         setImeiError(null)
         setInventoryInfo(null)
         setProductNotFoundWarning(null)
+        setImeiStatusError(null)
         return
       }
     }
@@ -72,6 +74,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
       setCheckingImei(true)
       setImeiError(null)
       setProductNotFoundWarning(null)
+      setImeiStatusError(null)
       lastCheckedImei.current = imei
 
       try {
@@ -93,6 +96,13 @@ export default function SaleForm({ products }: { products: Product[] }) {
 
         setInventoryInfo(inventory)
         setImeiError(null)
+
+        // Validate IMEI status - only 'no disponible' means it was sold by CUBOT
+        if (inventory.status?.toLowerCase() !== "no disponible") {
+          setImeiStatusError(t("vendor.sales.new.imei_status_invalid"))
+        } else {
+          setImeiStatusError(null)
+        }
 
         // Auto-select product logic and fallback note
         const inventoryModel = (inventory.model || "").toLowerCase().trim()
@@ -179,12 +189,19 @@ export default function SaleForm({ products }: { products: Product[] }) {
 
             {/* Inventory Info Card */}
             {inventoryInfo && (
-              <div className={`mt-2 p-3 border rounded text-sm ${inventoryInfo.status === "disponible" ? "bg-green-500/10 border-green-500/20" : "bg-orange-500/10 border-orange-500/20"}`}>
-                <p className={`font-semibold ${inventoryInfo.status === "disponible" ? "text-green-600" : "text-orange-600"}`}>✓ {t("vendor.sales.new.imei_verified")}</p>
-                <div className="mt-2 space-y-1 text-muted-foreground">
+              <div className={`mt-2 p-3 border rounded text-sm ${inventoryInfo.status?.toLowerCase() === "no disponible" ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+                <p className={`font-semibold ${inventoryInfo.status?.toLowerCase() === "no disponible" ? "text-green-600" : "text-red-600"}`}>
+                  {inventoryInfo.status?.toLowerCase() === "no disponible" ? "✓" : "✗"} {t("vendor.sales.new.imei_verified")}
+                </p>
+                <div className="mt-2 text-muted-foreground">
                   <p><span className="font-medium">{t("vendor.sales.new.model")}:</span> {inventoryInfo.brand} {inventoryInfo.model}</p>
-                  <p><span className="font-medium">{t("vendor.sales.new.status")}:</span> {inventoryInfo.status}</p>
                 </div>
+              </div>
+            )}
+            {/* IMEI Status Error - device not sold by CUBOT */}
+            {imeiStatusError && (
+              <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded text-sm text-red-700 dark:text-red-400">
+                ⚠️ {imeiStatusError}
               </div>
             )}
           </div>
@@ -220,7 +237,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
                 name="channel"
                 value={formData.channel}
                 onChange={(e) => setFormData({ ...formData, channel: e.target.value })}
-                className="w-full px-3 py-2 border rounded"
+                className="w-full px-3 py-2 border border-border rounded bg-background text-foreground"
                 required
               >
                 <option value="Online">{t("vendor.sales.new.channel.online")}</option>
@@ -236,8 +253,9 @@ export default function SaleForm({ products }: { products: Product[] }) {
                 name="saleDate"
                 type="date"
                 value={formData.sale_date}
+                max={new Date().toISOString().split("T")[0]}
                 onChange={(e) => setFormData({ ...formData, sale_date: e.target.value })}
-                className="w-full px-3 py-2 border rounded"
+                className="w-full px-3 py-2 border border-border rounded bg-background text-foreground"
                 required
               />
             </div>
@@ -271,8 +289,8 @@ export default function SaleForm({ products }: { products: Product[] }) {
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isPending}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            disabled={isPending || !inventoryInfo || imeiStatusError !== null || imeiError !== null}
+            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isPending ? t("vendor.sales.new.submitting") : t("vendor.sales.new.submit_btn")}
           </button>

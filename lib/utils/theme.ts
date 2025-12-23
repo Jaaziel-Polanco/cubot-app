@@ -42,20 +42,19 @@ export const defaultTheme: ThemeConfig = {
 }
 
 export function applyTheme(theme: ThemeConfig) {
-  const root = document.documentElement
-
-  // Light mode
-  root.style.setProperty("--primary", theme.primary.light)
-  root.style.setProperty("--secondary", theme.secondary.light)
-  root.style.setProperty("--accent", theme.accent.light)
-  root.style.setProperty("--sidebar", theme.sidebar.light)
-  root.style.setProperty("--background", theme.background.light)
-  root.style.setProperty("--foreground", theme.foreground.light)
-  root.style.setProperty("--radius", theme.radius)
-
-  // Update dark mode variables in the .dark class
+  // Create dynamic style tag for both light and dark mode
+  // This avoids setting inline styles on :root which would override the dark mode CSS
   const style = document.createElement("style")
   style.textContent = `
+    :root {
+      --primary: ${theme.primary.light};
+      --secondary: ${theme.secondary.light};
+      --accent: ${theme.accent.light};
+      --sidebar: ${theme.sidebar.light};
+      --background: ${theme.background.light};
+      --foreground: ${theme.foreground.light};
+      --radius: ${theme.radius};
+    }
     .dark {
       --primary: ${theme.primary.dark};
       --secondary: ${theme.secondary.dark};

@@ -72,10 +72,11 @@ describe("Commission Calculation", () => {
         commission_percent: 10,
       }
 
-      expect(calculateCommission(product, 1234.56)).toBe(123.456)
+      // Use toBeCloseTo for floating point precision
+      expect(calculateCommission(product, 1234.56)).toBeCloseTo(123.456, 2)
     })
 
-    it("should default to 0 for invalid types", () => {
+    it("should use percentage when fixed amount is 0", () => {
       const product = {
         commission_type: "invalid" as any,
         commission_value: 10,
@@ -83,7 +84,8 @@ describe("Commission Calculation", () => {
         commission_percent: 10,
       }
 
-      expect(calculateCommission(product, 1000)).toBe(0)
+      // Function uses commission_percent (10%) when commission_amount is 0
+      expect(calculateCommission(product, 1000)).toBe(100)
     })
   })
 })

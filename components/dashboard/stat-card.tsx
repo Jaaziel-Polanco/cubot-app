@@ -59,6 +59,16 @@ export function StatCard({
 
   if (!Icon) return null
 
+  // Determine font size based on value length
+  const valueStr = typeof value === "string" ? value : value.toString()
+  const getResponsiveFontSize = () => {
+    const length = valueStr.length
+    if (length <= 5) return "text-2xl sm:text-3xl lg:text-4xl"
+    if (length <= 8) return "text-xl sm:text-2xl lg:text-3xl"
+    if (length <= 12) return "text-lg sm:text-xl lg:text-2xl"
+    return "text-base sm:text-lg lg:text-xl"
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -75,11 +85,11 @@ export function StatCard({
             <div className="space-y-1 sm:space-y-2 flex-1 min-w-0">
               <p className="text-xs sm:text-sm font-medium text-muted-foreground truncate">{title}</p>
               {typeof value === "number" ? (
-                <motion.p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">
+                <motion.p className={cn(getResponsiveFontSize(), "font-bold text-foreground whitespace-nowrap")}>
                   {roundedNumber}
                 </motion.p>
               ) : (
-                <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-foreground">{value}</p>
+                <p className={cn(getResponsiveFontSize(), "font-bold text-foreground whitespace-nowrap")}>{value}</p>
               )}
               {change && (
                 <motion.p

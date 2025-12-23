@@ -95,6 +95,7 @@ export const translations = {
         "vendor.sales.new.evidence_hint": "JPG, PNG o PDF. Max 5MB.",
         "vendor.sales.new.submit_btn": "Registrar Venta",
         "vendor.sales.new.submitting": "Registrando...",
+        "vendor.sales.new.imei_status_invalid": "Este dispositivo no está registrado como vendido por CUBOT. Solo se pueden registrar comisiones para dispositivos con estado 'No Disponible'.",
 
         // Vendor Commissions
         "vendor.commissions.title": "Mis Comisiones",
@@ -538,6 +539,7 @@ export const translations = {
         "vendor.sales.new.evidence_hint": "JPG, PNG or PDF. Max 5MB.",
         "vendor.sales.new.submit_btn": "Register Sale",
         "vendor.sales.new.submitting": "Registering...",
+        "vendor.sales.new.imei_status_invalid": "This device is not registered as sold by CUBOT. Only devices with 'Not Available' status can be registered for commissions.",
 
         // Vendor Commissions
         "vendor.commissions.title": "My Commissions",

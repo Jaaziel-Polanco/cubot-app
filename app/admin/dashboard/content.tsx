@@ -50,8 +50,6 @@ export function AdminDashboardContent({
                 <StatCard
                     title={t("admin.stats.month_revenue")}
                     value={`RD$${monthRevenue.toLocaleString('es-DO', { minimumFractionDigits: 2 })}`}
-                    change="+12.5%"
-                    changeType="positive"
                     icon="DollarSign"
                     iconColor="text-green-600"
                     delay={0.2}
