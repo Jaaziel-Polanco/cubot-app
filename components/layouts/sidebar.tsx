@@ -20,6 +20,7 @@ import {
   Menu,
   X,
   Building2,
+  HelpCircle,
   type LucideIcon,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
@@ -41,6 +42,7 @@ const iconMap: Record<string, LucideIcon> = {
   Plus,
   User,
   Building2,
+  HelpCircle,
 }
 
 interface NavItem {

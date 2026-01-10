@@ -33,6 +33,7 @@ export default async function VendorLayout({
     { title: "vendor.nav.payments", href: "/vendor/payments", icon: "CreditCard" },
     { title: "vendor.nav.products", href: "/vendor/products", icon: "Package" },
     { title: "vendor.nav.profile", href: "/vendor/profile", icon: "User" },
+    { title: "vendor.nav.help", href: "/vendor/help", icon: "HelpCircle" },
     { title: "vendor.nav.notifications", href: "/vendor/notificaciones", icon: "Bell" },
   ]
 

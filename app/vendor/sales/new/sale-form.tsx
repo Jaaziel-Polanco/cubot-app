@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useRef, useEffect, useActionState } from "react"
+import { useState, useRef, useEffect, useActionState, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import type { Product } from "@/lib/types"
 import type { InventoryCheckResult } from "@/lib/types"
@@ -8,6 +8,9 @@ import { validateImei } from "@/lib/utils/imei"
 import { registerSale } from "@/lib/actions/sales"
 import { toast } from "sonner"
 import { useLanguage } from "@/components/contexts/LanguageContext"
+import { Plus, X, Check, AlertCircle, Loader2 } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 
 const initialState = {
   message: "",
@@ -15,25 +18,50 @@ const initialState = {
   success: false
 }
 
+// Type for each IMEI entry
+interface ImeiEntry {
+  id: string
+  imei: string
+  status: "idle" | "checking" | "valid" | "invalid"
+  inventoryInfo: InventoryCheckResult | null
+  error: string | null
+  statusError: string | null
+  productId: string
+  productWarning: string | null
+  isDuplicate: boolean
+}
+
+// Generate unique ID
+const generateId = () => Math.random().toString(36).substring(2, 9)
+
+// Create empty IMEI entry
+const createEmptyEntry = (): ImeiEntry => ({
+  id: generateId(),
+  imei: "",
+  status: "idle",
+  inventoryInfo: null,
+  error: null,
+  statusError: null,
+  productId: "",
+  productWarning: null,
+  isDuplicate: false,
+})
+
 export default function SaleForm({ products }: { products: Product[] }) {
   const { t } = useLanguage()
   const [state, formAction, isPending] = useActionState(registerSale, initialState)
 
-  const [checkingImei, setCheckingImei] = useState(false)
-  const [inventoryInfo, setInventoryInfo] = useState<InventoryCheckResult | null>(null)
-  const [imeiError, setImeiError] = useState<string | null>(null)
-  const [imeiStatusError, setImeiStatusError] = useState<string | null>(null)
+  // Multiple IMEI entries
+  const [imeiEntries, setImeiEntries] = useState<ImeiEntry[]>([createEmptyEntry()])
   const [formData, setFormData] = useState({
-    product_id: "",
-    imei: "",
     channel: "Online",
     sale_date: new Date().toISOString().split("T")[0],
     notes: ""
   })
 
   const router = useRouter()
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null)
-  const lastCheckedImei = useRef<string>("")
+  const debounceTimers = useRef<Record<string, NodeJS.Timeout>>({})
+  const lastCheckedImeis = useRef<Record<string, string>>({})
 
   useEffect(() => {
     if (state.success) {
@@ -44,38 +72,70 @@ export default function SaleForm({ products }: { products: Product[] }) {
     }
   }, [state, router])
 
-  const [productNotFoundWarning, setProductNotFoundWarning] = useState<string | null>(null)
+  // Check for duplicates and update entries
+  const checkAndMarkDuplicates = useCallback((entries: ImeiEntry[]): ImeiEntry[] => {
+    const imeiCount: Record<string, number> = {}
 
-  const handleImeiCheck = async (imei: string, forceCheck: boolean = false) => {
-    // ... (Keep existing IMEI check logic as it provides good UX)
-    // For brevity in this refactor, I'm simplifying the logging but keeping the core logic
+    // Count occurrences of each IMEI (only 15-digit ones)
+    entries.forEach(e => {
+      if (e.imei.length === 15) {
+        imeiCount[e.imei] = (imeiCount[e.imei] || 0) + 1
+      }
+    })
 
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current)
-      debounceTimer.current = null
+    // Mark duplicates
+    return entries.map(e => ({
+      ...e,
+      isDuplicate: e.imei.length === 15 && (imeiCount[e.imei] || 0) > 1
+    }))
+  }, [])
+
+  // Check if all valid IMEIs are ready for submission
+  const validEntries = imeiEntries.filter(e => e.status === "valid" && !e.statusError && !e.isDuplicate)
+  const invalidEntries = imeiEntries.filter(e => e.status === "invalid" || e.statusError || e.isDuplicate)
+  const pendingEntries = imeiEntries.filter(e => e.status === "checking" || (e.imei.length === 15 && e.status === "idle"))
+  const hasDuplicates = imeiEntries.some(e => e.isDuplicate)
+
+  const canSubmit =
+    imeiEntries.length > 0 &&
+    validEntries.length === imeiEntries.length &&
+    invalidEntries.length === 0 &&
+    pendingEntries.length === 0 &&
+    !hasDuplicates &&
+    imeiEntries.every(e => e.imei.length === 15)
+
+  // IMEI Check function
+  const handleImeiCheck = useCallback(async (entryId: string, imei: string, forceCheck: boolean = false) => {
+    // Clear existing timer for this entry
+    if (debounceTimers.current[entryId]) {
+      clearTimeout(debounceTimers.current[entryId])
+      delete debounceTimers.current[entryId]
     }
 
     if (imei.length !== 15) {
       if (!forceCheck) {
-        setImeiError(null)
-        setInventoryInfo(null)
-        setProductNotFoundWarning(null)
-        setImeiStatusError(null)
+        setImeiEntries(prev => prev.map(e =>
+          e.id === entryId
+            ? { ...e, status: "idle", error: null, inventoryInfo: null, statusError: null, productId: "", productWarning: null }
+            : e
+        ))
         return
       }
     }
 
-    if (imei === lastCheckedImei.current && !forceCheck) return
+    if (imei === lastCheckedImeis.current[entryId] && !forceCheck) return
 
     const validation = validateImei(imei)
     if (!validation.valid && !forceCheck) return
 
     const performCheck = async () => {
-      setCheckingImei(true)
-      setImeiError(null)
-      setProductNotFoundWarning(null)
-      setImeiStatusError(null)
-      lastCheckedImei.current = imei
+      // Set checking status
+      setImeiEntries(prev => prev.map(e =>
+        e.id === entryId
+          ? { ...e, status: "checking", error: null, statusError: null, productWarning: null }
+          : e
+      ))
+      lastCheckedImeis.current[entryId] = imei
 
       try {
         const response = await fetch("/api/inventory/check", {
@@ -88,59 +148,142 @@ export default function SaleForm({ products }: { products: Product[] }) {
         const inventory = await response.json()
 
         if (!inventory) {
-          setImeiError(t("common.error.imei_not_found"))
-          setInventoryInfo(null)
-          setFormData((prev) => ({ ...prev, product_id: "" }))
+          setImeiEntries(prev => prev.map(e =>
+            e.id === entryId
+              ? { ...e, status: "invalid", error: t("common.error.imei_not_found"), inventoryInfo: null, productId: "" }
+              : e
+          ))
           return
         }
 
-        setInventoryInfo(inventory)
-        setImeiError(null)
-
-        // Validate IMEI status - only 'no disponible' means it was sold by CUBOT
+        // Validate IMEI status
+        let statusError: string | null = null
         if (inventory.status?.toLowerCase() !== "no disponible") {
-          setImeiStatusError(t("vendor.sales.new.imei_status_invalid"))
-        } else {
-          setImeiStatusError(null)
+          statusError = t("vendor.sales.new.imei_status_invalid")
         }
 
-        // Auto-select product logic and fallback note
+        // Find matching product
         const inventoryModel = (inventory.model || "").toLowerCase().trim()
         const inventoryBrand = (inventory.brand || "").toLowerCase().trim()
 
-        // Strategy: Try to find a product that contains the model name
-        // Example: Inventory "NOTE 50", Product "Cubot Note 50"
         const matchingProduct = products.find((p) => {
           const productName = p.name.toLowerCase()
-          // Check if product name contains the model from inventory
-          // Or if model plus brand matches
           return productName.includes(inventoryModel) ||
             (inventoryBrand && productName.includes(inventoryBrand) && productName.includes(inventoryModel))
         })
 
+        let productId = ""
+        let productWarning: string | null = null
+
         if (matchingProduct) {
-          setFormData((prev) => ({ ...prev, product_id: matchingProduct.id }))
-          setProductNotFoundWarning(null)
+          productId = matchingProduct.id
         } else {
-          // If no match found, don't auto-select, but show warning
-          setFormData((prev) => ({ ...prev, product_id: "" }))
-          setProductNotFoundWarning(
-            t("vendor.sales.new.product_not_found_warning").replace("{model}", `${inventory.brand || ''} ${inventory.model || ''}`.trim())
+          productWarning = t("vendor.sales.new.product_not_found_warning").replace(
+            "{model}",
+            `${inventory.brand || ''} ${inventory.model || ''}`.trim()
           )
         }
 
+        setImeiEntries(prev => prev.map(e =>
+          e.id === entryId
+            ? {
+              ...e,
+              status: statusError ? "invalid" : "valid",
+              inventoryInfo: inventory,
+              error: null,
+              statusError,
+              productId,
+              productWarning
+            }
+            : e
+        ))
+
       } catch (error: any) {
-        setImeiError(error.message || t("common.error.imei_verification"))
-        setInventoryInfo(null)
-      } finally {
-        setCheckingImei(false)
+        setImeiEntries(prev => prev.map(e =>
+          e.id === entryId
+            ? { ...e, status: "invalid", error: error.message || t("common.error.imei_verification"), inventoryInfo: null }
+            : e
+        ))
       }
     }
 
     if (forceCheck || imei.length === 15) {
-      if (forceCheck) performCheck()
-      else debounceTimer.current = setTimeout(performCheck, 800)
+      if (forceCheck) {
+        performCheck()
+      } else {
+        debounceTimers.current[entryId] = setTimeout(performCheck, 800)
+      }
     }
+  }, [t, products])
+
+  // Add new IMEI entry
+  const addImeiEntry = () => {
+    setImeiEntries(prev => [...prev, createEmptyEntry()])
+  }
+
+  // Remove IMEI entry
+  const removeImeiEntry = (entryId: string) => {
+    if (imeiEntries.length <= 1) return // Keep at least one
+    setImeiEntries(prev => {
+      const filtered = prev.filter(e => e.id !== entryId)
+      // Recalculate duplicates after removal
+      return checkAndMarkDuplicates(filtered)
+    })
+    // Clean up refs
+    delete debounceTimers.current[entryId]
+    delete lastCheckedImeis.current[entryId]
+  }
+
+  // Update IMEI value
+  const updateImei = (entryId: string, value: string) => {
+    const cleanValue = value.replace(/\D/g, "").slice(0, 15)
+
+    setImeiEntries(prev => {
+      const updated = prev.map(e =>
+        e.id === entryId ? { ...e, imei: cleanValue } : e
+      )
+      // Check for duplicates after update
+      return checkAndMarkDuplicates(updated)
+    })
+
+    if (cleanValue.length === 15) {
+      handleImeiCheck(entryId, cleanValue, false)
+    } else {
+      setImeiEntries(prev => {
+        const updated = prev.map(e =>
+          e.id === entryId
+            ? { ...e, status: "idle", error: null, inventoryInfo: null, statusError: null }
+            : e
+        )
+        return checkAndMarkDuplicates(updated)
+      })
+    }
+  }
+
+  // Get status icon for entry
+  const getStatusIcon = (entry: ImeiEntry) => {
+    if (entry.status === "checking") {
+      return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />
+    }
+    if (entry.isDuplicate) {
+      return <AlertCircle className="w-5 h-5 text-orange-500" />
+    }
+    if (entry.status === "valid" && !entry.statusError) {
+      return <Check className="w-5 h-5 text-green-500" />
+    }
+    if (entry.status === "invalid" || entry.statusError) {
+      return <AlertCircle className="w-5 h-5 text-red-500" />
+    }
+    return null
+  }
+
+  // Prepare data for form submission
+  const prepareFormData = () => {
+    const imeiData = imeiEntries.map(e => ({
+      imei: e.imei,
+      productId: e.productId
+    }))
+    return JSON.stringify(imeiData)
   }
 
   return (
@@ -152,85 +295,139 @@ export default function SaleForm({ products }: { products: Product[] }) {
 
       <div className="bg-card rounded-xl shadow-sm border border-border p-4 sm:p-6 lg:p-8 max-w-4xl">
         <form action={formAction} className="space-y-6 sm:space-y-8">
-          {/* IMEI Field */}
-          <div>
-            <label className="block text-sm font-medium mb-2">{t("vendor.sales.new.imei_label")}</label>
-            <div className="flex gap-2">
-              <input
-                name="imei"
-                type="text"
-                value={formData.imei}
-                onChange={(e) => {
-                  const value = e.target.value.replace(/\D/g, "").slice(0, 15)
-                  setFormData({ ...formData, imei: value })
-                  if (value.length === 15) handleImeiCheck(value, false)
-                  else {
-                    setImeiError(null)
-                    setInventoryInfo(null)
-                  }
-                }}
-                onBlur={() => {
-                  if (formData.imei.length === 15 && !inventoryInfo && !checkingImei) {
-                    handleImeiCheck(formData.imei, true)
-                  }
-                }}
-                className="flex-1 px-3 py-2 border rounded font-mono"
-                maxLength={15}
-                placeholder="358497892739257"
-                required
-              />
-              {checkingImei && (
-                <div className="flex items-center px-3 text-sm text-muted-foreground">
-                  <span className="animate-pulse">{t("vendor.sales.new.verifying")}</span>
-                </div>
-              )}
+          {/* Hidden input for IMEI data */}
+          <input type="hidden" name="imeiData" value={prepareFormData()} />
+
+          {/* IMEI Entries Section */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium">
+                {t("vendor.sales.new.imei_label")}
+              </label>
+              <span className="text-sm text-muted-foreground">
+                {t("vendor.sales.new.devices_count").replace("{count}", String(imeiEntries.length))}
+              </span>
             </div>
-            {imeiError && <p className="text-sm text-red-600 mt-1">{imeiError}</p>}
 
-            {/* Inventory Info Card */}
-            {inventoryInfo && (
-              <div className={`mt-2 p-3 border rounded text-sm ${inventoryInfo.status?.toLowerCase() === "no disponible" ? "bg-green-500/10 border-green-500/20" : "bg-red-500/10 border-red-500/20"}`}>
-                <p className={`font-semibold ${inventoryInfo.status?.toLowerCase() === "no disponible" ? "text-green-600" : "text-red-600"}`}>
-                  {inventoryInfo.status?.toLowerCase() === "no disponible" ? "✓" : "✗"} {t("vendor.sales.new.imei_verified")}
-                </p>
-                <div className="mt-2 text-muted-foreground">
-                  <p><span className="font-medium">{t("vendor.sales.new.model")}:</span> {inventoryInfo.brand} {inventoryInfo.model}</p>
+            {/* IMEI Entry List */}
+            <div className="space-y-3">
+              {imeiEntries.map((entry, index) => (
+                <div key={entry.id} className="space-y-2">
+                  <div className={cn(
+                    "flex items-center gap-2 p-3 rounded-lg border transition-colors",
+                    entry.status === "valid" && !entry.statusError && !entry.isDuplicate && "bg-green-500/5 border-green-500/30",
+                    entry.isDuplicate && "bg-orange-500/5 border-orange-500/30",
+                    (entry.status === "invalid" || entry.statusError) && !entry.isDuplicate && "bg-red-500/5 border-red-500/30",
+                    entry.status === "checking" && "bg-blue-500/5 border-blue-500/30",
+                    entry.status === "idle" && !entry.isDuplicate && "bg-background border-border"
+                  )}>
+                    {/* Entry Number */}
+                    <span className="text-sm font-medium text-muted-foreground w-6">
+                      {index + 1}.
+                    </span>
+
+                    {/* IMEI Input */}
+                    <input
+                      type="text"
+                      value={entry.imei}
+                      onChange={(e) => updateImei(entry.id, e.target.value)}
+                      onBlur={() => {
+                        if (entry.imei.length === 15 && !entry.inventoryInfo && entry.status !== "checking") {
+                          handleImeiCheck(entry.id, entry.imei, true)
+                        }
+                      }}
+                      className="flex-1 px-3 py-2 border rounded font-mono bg-background text-foreground border-border"
+                      maxLength={15}
+                      placeholder="358497892739257"
+                    />
+
+                    {/* Status Icon */}
+                    <div className="w-8 flex justify-center">
+                      {getStatusIcon(entry)}
+                    </div>
+
+                    {/* Product Info (if valid) */}
+                    {entry.inventoryInfo && entry.status === "valid" && !entry.statusError && (
+                      <span className="text-sm text-muted-foreground hidden sm:block truncate max-w-[150px]">
+                        {entry.inventoryInfo.brand} {entry.inventoryInfo.model}
+                      </span>
+                    )}
+
+                    {/* Remove Button */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeImeiEntry(entry.id)}
+                      disabled={imeiEntries.length <= 1}
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    >
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+
+                  {/* Error Message */}
+                  {(entry.error || entry.statusError || entry.isDuplicate) && (
+                    <p className="text-sm text-red-600 dark:text-red-400 ml-8">
+                      {entry.isDuplicate
+                        ? t("vendor.sales.new.duplicate_imei")
+                        : (entry.error || entry.statusError)
+                      }
+                    </p>
+                  )}
+
+                  {/* Product Warning */}
+                  {entry.productWarning && (
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400 ml-8 p-2 bg-yellow-50 dark:bg-yellow-900/20 rounded border border-yellow-200 dark:border-yellow-900/30">
+                      ⚠️ {entry.productWarning}
+                    </p>
+                  )}
+
+                  {/* Mobile: Show product info */}
+                  {entry.inventoryInfo && entry.status === "valid" && !entry.statusError && (
+                    <p className="text-sm text-green-600 dark:text-green-400 ml-8 sm:hidden">
+                      ✓ {entry.inventoryInfo.brand} {entry.inventoryInfo.model}
+                    </p>
+                  )}
                 </div>
-              </div>
-            )}
-            {/* IMEI Status Error - device not sold by CUBOT */}
-            {imeiStatusError && (
-              <div className="mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/30 rounded text-sm text-red-700 dark:text-red-400">
-                ⚠️ {imeiStatusError}
-              </div>
-            )}
-          </div>
-
-          {/* Product Select */}
-          <div>
-            <label className="block text-sm font-medium mb-2">{t("vendor.sales.new.product_label")}</label>
-            <input type="hidden" name="productId" value={formData.product_id} />
-            <select
-              value={formData.product_id}
-              disabled
-              className="w-full px-3 py-2 border rounded bg-muted/50 text-muted-foreground cursor-not-allowed"
-            >
-              <option value="">{t("vendor.sales.new.select_product")}</option>
-              {products.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name} ({product.sku})
-                </option>
               ))}
-            </select>
-            {productNotFoundWarning && (
-              <p className="text-sm text-yellow-600 dark:text-yellow-400 mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/30 rounded">
-                ⚠️ {productNotFoundWarning}
-              </p>
+            </div>
+
+            {/* Add Device Button */}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addImeiEntry}
+              className="w-full border-dashed"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              {t("vendor.sales.new.add_device")}
+            </Button>
+
+            {/* Validation Summary */}
+            {imeiEntries.length > 0 && (
+              <div className={cn(
+                "p-3 rounded-lg text-sm",
+                canSubmit
+                  ? "bg-green-500/10 text-green-700 dark:text-green-400 border border-green-500/20"
+                  : "bg-muted text-muted-foreground"
+              )}>
+                {canSubmit ? (
+                  <span className="flex items-center gap-2">
+                    <Check className="w-4 h-4" />
+                    {t("vendor.sales.new.all_imei_valid")}
+                  </span>
+                ) : (
+                  <span>
+                    {validEntries.length} / {imeiEntries.length} {t("vendor.sales.new.verified_count")}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
           {/* Channel & Date */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-2">{t("vendor.sales.new.channel_label")}</label>
               <select
@@ -268,7 +465,7 @@ export default function SaleForm({ products }: { products: Product[] }) {
               name="notes"
               value={formData.notes}
               onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              className="w-full px-3 py-2 border rounded"
+              className="w-full px-3 py-2 border border-border rounded bg-background text-foreground"
               rows={2}
             />
           </div>
@@ -280,23 +477,23 @@ export default function SaleForm({ products }: { products: Product[] }) {
               name="evidence"
               type="file"
               accept=".jpg,.jpeg,.png,.pdf"
-              className="w-full px-3 py-2 border rounded"
+              className="w-full px-3 py-2 border border-border rounded bg-background text-foreground"
               required
             />
-            <p className="text-xs text-slate-500 mt-1">{t("vendor.sales.new.evidence_hint")}</p>
+            <p className="text-xs text-muted-foreground mt-1">{t("vendor.sales.new.evidence_hint")}</p>
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={isPending || !inventoryInfo || imeiStatusError !== null || imeiError !== null}
-            className="w-full px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={isPending || !canSubmit}
+            className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-medium"
           >
             {isPending ? t("vendor.sales.new.submitting") : t("vendor.sales.new.submit_btn")}
           </button>
 
           {state.error && (
-            <div className="p-3 bg-red-50 text-red-700 rounded border border-red-200 text-sm">
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded border border-red-200 dark:border-red-900/30 text-sm">
               {state.error}
             </div>
           )}

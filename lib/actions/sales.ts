@@ -9,13 +9,19 @@ import { checkInventoryByImei } from "@/lib/services/inventory"
 import { calculateRisk } from "@/lib/utils/risk"
 import { createCommission } from "@/lib/services/commissions"
 
-// Schemas
-const registerSaleSchema = z.object({
+// Schema for single IMEI entry
+const imeiEntrySchema = z.object({
     imei: z.string().length(15, "El IMEI debe tener 15 dígitos"),
     productId: z.string().uuid("Producto inválido"),
+})
+
+// Schema for multiple IMEI data
+const imeiDataSchema = z.array(imeiEntrySchema).min(1, "Se requiere al menos un dispositivo")
+
+// Schemas
+const registerSaleSchema = z.object({
     channel: z.enum(["Online", "Tienda Fisica", "Marketplace", "Venta Telefonica"]),
     saleDate: z.string().refine((date) => !isNaN(Date.parse(date)), "Fecha inválida"),
-    // evidenceUrl is handled separately via file upload
     notes: z.string().optional(),
 })
 
@@ -24,7 +30,6 @@ const validateSaleSchema = z.object({
     action: z.enum(["approve", "reject"]),
     reason: z.string().nullish(),
 }).refine((data) => {
-    // If rejecting, reason is required and must not be empty
     if (data.action === "reject") {
         return data.reason != null && data.reason.trim().length > 0;
     }
@@ -51,10 +56,8 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
             return { error: "Usuario no autenticado" }
         }
 
-        // 1. Extract and Validate Data
+        // 1. Extract and Validate Base Data
         const rawData = {
-            imei: formData.get("imei"),
-            productId: formData.get("productId"),
             channel: formData.get("channel"),
             saleDate: formData.get("saleDate"),
             notes: formData.get("notes"),
@@ -65,15 +68,34 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
             return { error: validated.error.errors[0].message }
         }
 
-        const { imei, productId, channel, saleDate, notes } = validated.data
+        const { channel, saleDate, notes } = validated.data
 
-        // 2. Handle File Upload (Evidence)
+        // 2. Parse and Validate IMEI Data
+        const imeiDataRaw = formData.get("imeiData")
+        if (!imeiDataRaw || typeof imeiDataRaw !== "string") {
+            return { error: "Datos de dispositivos no válidos" }
+        }
+
+        let imeiEntries: { imei: string; productId: string }[]
+        try {
+            imeiEntries = JSON.parse(imeiDataRaw)
+        } catch {
+            return { error: "Error al procesar datos de dispositivos" }
+        }
+
+        const validatedImeis = imeiDataSchema.safeParse(imeiEntries)
+        if (!validatedImeis.success) {
+            return { error: validatedImeis.error.errors[0].message }
+        }
+
+        const devices = validatedImeis.data
+
+        // 3. Handle File Upload (Evidence) - shared by all devices
         const evidenceFile = formData.get("evidence") as File
         if (!evidenceFile || evidenceFile.size === 0) {
             return { error: "La evidencia de venta es requerida" }
         }
 
-        // Upload to Supabase Storage (use service client to bypass RLS)
         const fileExt = evidenceFile.name.split(".").pop()
         const fileName = `${user.id}/${Date.now()}.${fileExt}`
         const serviceSupabase = createServiceClient()
@@ -86,116 +108,145 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
             return { error: "Error al subir la evidencia" }
         }
 
-        // Store just the filename (not full URL) since bucket is private
         const evidenceUrl = fileName
 
-        // 3. Inventory Check & Risk Analysis
-        // Get product details for risk calc
-        const { data: product } = await supabase
-            .from("products")
-            .select("*")
-            .eq("id", productId)
-            .single()
+        // 4. Validate all IMEIs before creating any sales
+        const validationResults: Array<{
+            entry: typeof devices[0]
+            product: any
+            inventoryResult: any
+            riskLevel: string
+        }> = []
 
-        if (!product) return { error: "Producto no encontrado" }
-
-        // Check external inventory
-        const inventoryResult = await checkInventoryByImei(imei)
-
-        // Check if IMEI already exists in approved sales
-        const { data: existingSale } = await supabase
-            .from("sales")
-            .select("sale_id, status")
-            .eq("imei", imei)
-            .eq("status", "approved")
-            .maybeSingle()
-
-        if (existingSale) {
-            return {
-                error: `Este IMEI ya fue registrado en la venta ${existingSale.sale_id} que está aprobada. No se pueden registrar IMEIs duplicados.`
-            }
-        }
-
-        // Calculate Risk
-        const riskLevel = await calculateRisk({
-            imei,
-            vendorId: user.id,
-            inventoryResult,
-            selectedProduct: product
-        })
-
-        // 4. Register Sale
-        // Generate Sale ID (VT-XXXX) manually with retry for concurrency
-        let saleId = ""
-        let insertSuccess = false
-        let attempts = 0
-        const maxAttempts = 3
-
-        // Get vendor profile once
-        const { data: vendorProfile } = await supabase
-            .from("users")
-            .select("vendor_id")
-            .eq("id", user.id)
-            .single()
-
-        while (!insertSuccess && attempts < maxAttempts) {
-            attempts++
-
-            const { data: lastSale } = await supabase
+        for (const entry of devices) {
+            // Check if IMEI already exists in approved sales
+            const { data: existingSale } = await supabase
                 .from("sales")
-                .select("sale_id")
-                .order("created_at", { ascending: false })
-                .limit(1)
+                .select("sale_id, status")
+                .eq("imei", entry.imei)
+                .eq("status", "approved")
+                .maybeSingle()
+
+            if (existingSale) {
+                return {
+                    error: `El IMEI ${entry.imei} ya fue registrado en la venta ${existingSale.sale_id}. Elimina este dispositivo de la lista para continuar.`
+                }
+            }
+
+            // Check if same IMEI appears twice in this batch
+            const duplicateInBatch = devices.filter(d => d.imei === entry.imei).length > 1
+            if (duplicateInBatch) {
+                return {
+                    error: `El IMEI ${entry.imei} aparece más de una vez en esta venta. Cada IMEI debe ser único.`
+                }
+            }
+
+            // Get product details
+            const { data: product } = await supabase
+                .from("products")
+                .select("*")
+                .eq("id", entry.productId)
                 .single()
 
-            let nextId = 1
-            if (lastSale?.sale_id) {
-                const match = lastSale.sale_id.match(/VT-(\d+)/)
-                if (match) {
-                    nextId = parseInt(match[1]) + 1
-                }
+            if (!product) {
+                return { error: `Producto no encontrado para IMEI ${entry.imei}` }
             }
 
-            saleId = `VT-${nextId.toString().padStart(4, "0")}`
+            // Check external inventory
+            const inventoryResult = await checkInventoryByImei(entry.imei)
 
-            const { error: insertError } = await supabase
-                .from("sales")
-                .insert({
-                    sale_id: saleId,
-                    vendor_id: user.id, // User is the vendor
-                    product_id: productId,
-                    imei,
-                    sale_price: product.price, // Base price
-                    sale_date: saleDate,
-                    channel,
-                    status: "pending",
-                    evidence_url: evidenceUrl,
-                    risk_level: riskLevel,
-                    notes,
-                    inventory_check_status: inventoryResult ? "verified" : "not_found",
-                    inventory_data: inventoryResult,
-                })
+            // Calculate Risk
+            const riskLevel = await calculateRisk({
+                imei: entry.imei,
+                vendorId: user.id,
+                inventoryResult,
+                selectedProduct: product
+            })
 
-            if (!insertError) {
-                insertSuccess = true
-            } else {
-                // Check if error is unique violation on sale_id
-                if (insertError.code === "23505" && insertError.message.includes("sale_id")) {
-                    console.warn(`Sale ID collision for ${saleId}, retrying...`)
-                    continue
-                }
-
-                console.error("Insert Error:", insertError)
-                return { error: "Error al registrar la venta en base de datos" }
-            }
+            validationResults.push({
+                entry,
+                product,
+                inventoryResult,
+                riskLevel
+            })
         }
 
-        if (!insertSuccess) {
-            return { error: "Error al generar ID de venta único. Intente nuevamente." }
+        // 5. Create sales for all devices
+        const createdSaleIds: string[] = []
+        const batchId = `BATCH-${Date.now()}`
+
+        for (const result of validationResults) {
+            let saleId = ""
+            let insertSuccess = false
+            let attempts = 0
+            const maxAttempts = 3
+
+            while (!insertSuccess && attempts < maxAttempts) {
+                attempts++
+
+                const { data: lastSale } = await supabase
+                    .from("sales")
+                    .select("sale_id")
+                    .order("created_at", { ascending: false })
+                    .limit(1)
+                    .single()
+
+                let nextId = 1
+                if (lastSale?.sale_id) {
+                    const match = lastSale.sale_id.match(/VT-(\d+)/)
+                    if (match) {
+                        nextId = parseInt(match[1]) + 1
+                    }
+                }
+
+                saleId = `VT-${nextId.toString().padStart(4, "0")}`
+
+                const { error: insertError } = await supabase
+                    .from("sales")
+                    .insert({
+                        sale_id: saleId,
+                        vendor_id: user.id,
+                        product_id: result.entry.productId,
+                        imei: result.entry.imei,
+                        sale_price: result.product.price,
+                        sale_date: saleDate,
+                        channel,
+                        status: "pending",
+                        evidence_url: evidenceUrl,
+                        risk_level: result.riskLevel,
+                        notes: devices.length > 1
+                            ? `${notes || ""} [Lote: ${batchId} - ${devices.length} dispositivos]`.trim()
+                            : notes,
+                        inventory_check_status: result.inventoryResult ? "verified" : "not_found",
+                        inventory_data: result.inventoryResult,
+                    })
+
+                if (!insertError) {
+                    insertSuccess = true
+                    createdSaleIds.push(saleId)
+                } else {
+                    if (insertError.code === "23505" && insertError.message.includes("sale_id")) {
+                        console.warn(`Sale ID collision for ${saleId}, retrying...`)
+                        continue
+                    }
+
+                    console.error("Insert Error:", insertError)
+                    return { error: `Error al registrar venta para IMEI ${result.entry.imei}` }
+                }
+            }
+
+            if (!insertSuccess) {
+                return { error: "Error al generar ID de venta único. Intente nuevamente." }
+            }
         }
 
         revalidatePath("/vendor/sales")
-        return { success: true, message: "Venta registrada exitosamente" }
+
+        const message = devices.length === 1
+            ? "Venta registrada exitosamente"
+            : `${devices.length} ventas registradas exitosamente`
+
+        return { success: true, message }
 
     } catch (error: unknown) {
         console.error("Server Action Error:", error)
@@ -203,6 +254,7 @@ export async function registerSale(prevState: ActionState, formData: FormData): 
         return { error: "Error interno del servidor: " + errorMessage }
     }
 }
+
 
 export async function validateSale(prevState: ActionState, formData: FormData): Promise<ActionState> {
     console.log("[validateSale] Starting validation process...")

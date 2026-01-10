@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import type { User } from "@/lib/types"
 import { toast } from "@/lib/utils/toast"
@@ -9,11 +9,55 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { AlertCircle } from "lucide-react"
+import { AlertCircle, Check, ChevronsUpDown } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
+import { cn } from "@/lib/utils"
+import { useLanguage } from "@/components/contexts/LanguageContext"
+
+// List of Dominican Republic provinces
+const DR_PROVINCES = [
+  "Azua",
+  "Bahoruco",
+  "Barahona",
+  "Dajabón",
+  "Distrito Nacional",
+  "Duarte",
+  "El Seibo",
+  "Elías Piña",
+  "Espaillat",
+  "Hato Mayor",
+  "Hermanas Mirabal",
+  "Independencia",
+  "La Altagracia",
+  "La Romana",
+  "La Vega",
+  "María Trinidad Sánchez",
+  "Monseñor Nouel",
+  "Monte Cristi",
+  "Monte Plata",
+  "Pedernales",
+  "Peravia",
+  "Puerto Plata",
+  "Samaná",
+  "San Cristóbal",
+  "San José de Ocoa",
+  "San Juan",
+  "San Pedro de Macorís",
+  "Sánchez Ramírez",
+  "Santiago",
+  "Santiago Rodríguez",
+  "Santo Domingo",
+  "Valverde",
+]
 
 export default function ProfileForm({ profile }: { profile: User }) {
   const [loading, setLoading] = useState(false)
+  const [provinceOpen, setProvinceOpen] = useState(false)
+  const [provinceSearch, setProvinceSearch] = useState("")
+  const { t } = useLanguage()
+
   const [formData, setFormData] = useState({
     full_name: profile.name || "",
     phone: profile.phone || "",
@@ -25,6 +69,15 @@ export default function ProfileForm({ profile }: { profile: User }) {
     country: profile.country || "DO",
   })
   const router = useRouter()
+
+  // Filter provinces based on search
+  const filteredProvinces = useMemo(() => {
+    if (!provinceSearch) return DR_PROVINCES
+    const searchLower = provinceSearch.toLowerCase()
+    return DR_PROVINCES.filter(province =>
+      province.toLowerCase().includes(searchLower)
+    )
+  }, [provinceSearch])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,7 +91,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
       })
 
       if (!response.ok) {
-        let errorMessage = "Error al actualizar el perfil"
+        let errorMessage = t("vendor.profile.form.error_update")
         try {
           const errorData = await response.json()
           errorMessage = errorData.error || errorMessage
@@ -50,10 +103,10 @@ export default function ProfileForm({ profile }: { profile: User }) {
       }
 
       const data = await response.json()
-      toast.success("¡Perfil actualizado exitosamente!", "Tu información ha sido guardada correctamente")
+      toast.success(t("vendor.profile.form.success_title"), t("vendor.profile.form.success_desc"))
       router.refresh()
     } catch (error: any) {
-      toast.error("Error al actualizar el perfil", error.message || "Por favor, intenta nuevamente")
+      toast.error(t("vendor.profile.form.error_title"), error.message || t("vendor.profile.form.error_desc"))
     } finally {
       setLoading(false)
     }
@@ -62,8 +115,8 @@ export default function ProfileForm({ profile }: { profile: User }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Información Personal</CardTitle>
-        <CardDescription>Completa tu información personal para verificación</CardDescription>
+        <CardTitle>{t("vendor.profile.form.title")}</CardTitle>
+        <CardDescription>{t("vendor.profile.form.desc")}</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -71,7 +124,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                <strong>Importante:</strong> Debes completar tu cédula de identidad o RNC para la verificación KYC.
+                <strong>{t("vendor.profile.form.important")}:</strong> {t("vendor.profile.form.cedula_alert")}
               </AlertDescription>
             </Alert>
           )}
@@ -79,7 +132,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="full_name">
-                Nombre Completo <span className="text-red-500">*</span>
+                {t("vendor.profile.form.full_name")} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="full_name"
@@ -92,7 +145,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="phone">Teléfono</Label>
+              <Label htmlFor="phone">{t("vendor.profile.form.phone")}</Label>
               <Input
                 id="phone"
                 type="tel"
@@ -104,7 +157,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
 
             <div className="space-y-2">
               <Label htmlFor="identification_number">
-                Cédula de Identidad o RNC <span className="text-red-500">*</span>
+                {t("vendor.profile.form.cedula")} <span className="text-destructive">*</span>
               </Label>
               <Input
                 id="identification_number"
@@ -112,16 +165,16 @@ export default function ProfileForm({ profile }: { profile: User }) {
                 value={formData.identification_number}
                 onChange={(e) => setFormData({ ...formData, identification_number: e.target.value })}
                 required
-                placeholder="001-1234567-8 o 123-45678-9"
-                className={!profile.identification_number ? "border-yellow-500" : ""}
+                placeholder="001-1234567-8"
+                className={!profile.identification_number ? "border-yellow-500 dark:border-yellow-400" : ""}
               />
               <p className="text-xs text-muted-foreground">
-                Requerido para verificación KYC. Formato: 001-1234567-8 (cédula) o 123-45678-9 (RNC)
+                {t("vendor.profile.form.cedula_hint")}
               </p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="country">País</Label>
+              <Label htmlFor="country">{t("vendor.profile.form.country")}</Label>
               <Input
                 id="country"
                 type="text"
@@ -132,7 +185,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
             </div>
 
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="address">Dirección</Label>
+              <Label htmlFor="address">{t("vendor.profile.form.address")}</Label>
               <Input
                 id="address"
                 type="text"
@@ -143,7 +196,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="city">Ciudad</Label>
+              <Label htmlFor="city">{t("vendor.profile.form.city")}</Label>
               <Input
                 id="city"
                 type="text"
@@ -154,18 +207,58 @@ export default function ProfileForm({ profile }: { profile: User }) {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="state">Provincia/Estado</Label>
-              <Input
-                id="state"
-                type="text"
-                value={formData.state}
-                onChange={(e) => setFormData({ ...formData, state: e.target.value })}
-                placeholder="Distrito Nacional"
-              />
+              <Label htmlFor="state">{t("vendor.profile.form.province")}</Label>
+              <Popover open={provinceOpen} onOpenChange={setProvinceOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    id="state"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={provinceOpen}
+                    className="w-full justify-between font-normal bg-background hover:bg-accent"
+                  >
+                    {formData.state || t("vendor.profile.form.select_province")}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-full p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      placeholder={t("vendor.profile.form.search_province")}
+                      value={provinceSearch}
+                      onValueChange={setProvinceSearch}
+                    />
+                    <CommandList>
+                      <CommandEmpty>{t("vendor.profile.form.no_province_found")}</CommandEmpty>
+                      <CommandGroup>
+                        {filteredProvinces.map((province) => (
+                          <CommandItem
+                            key={province}
+                            value={province}
+                            onSelect={() => {
+                              setFormData({ ...formData, state: province })
+                              setProvinceOpen(false)
+                              setProvinceSearch("")
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                formData.state === province ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            {province}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="postal_code">Código Postal</Label>
+              <Label htmlFor="postal_code">{t("vendor.profile.form.zip")}</Label>
               <Input
                 id="postal_code"
                 type="text"
@@ -178,7 +271,7 @@ export default function ProfileForm({ profile }: { profile: User }) {
 
           <div className="pt-4">
             <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Guardando..." : "Guardar Cambios"}
+              {loading ? t("vendor.profile.form.saving") : t("vendor.profile.form.save")}
             </Button>
           </div>
         </form>
